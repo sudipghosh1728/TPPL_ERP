@@ -1,0 +1,57 @@
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch();
+ try{
+  const page=await browser.newPage({viewport:{width:1440,height:1100}}),errors=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(process.env.ERP_TEST_URL);
+  await page.locator('#login-form').waitFor();
+  await page.locator('[name=name]').fill('Finance Test Admin');
+  await page.locator('[name=username]').fill('finance-test');
+  await page.locator('[name=password]').fill('Browser-test-password-123');
+  await page.locator('#login-form [type=submit]').click();
+  await page.locator('nav a').first().waitFor();
+  await page.locator('h1').waitFor();
+  const nav=async name=>{await page.locator(`nav a[href="#${name}"]`).click();await page.locator('h1').waitFor()};
+  const state=()=>page.evaluate(async()=>await (await fetch('/api/state')).json());
+  const fill=async(name,value)=>page.locator(`[name="${name}"]`).fill(value);
+  const save=async()=>{await page.locator('dialog [type=submit]').click();await page.locator('dialog[open]').waitFor({state:'hidden'})};
+  await nav('accounts');await page.locator('[data-finance=customer]').click();
+  await fill('name','Browser Customer');await fill('email','test@example.com');
+  await page.locator('summary').click();await fill('opening','100.00');await save();
+  let s=await state();const customer=s.accounts.find(a=>a.name==='Browser Customer');assert.equal(customer.balance,10000);
+  await nav('sales');await page.locator('[data-action=order]').click();
+  await page.locator('[name=account_id]').selectOption(String(customer.id));
+  await page.locator('.line-product').selectOption('1');await page.locator('.line-qty').fill('2');await page.locator('.line-price').fill('10.15');
+  await page.locator('#add-line').click();await page.locator('.line-product').nth(1).selectOption('4');await page.locator('.line-qty').nth(1).fill('3');await page.locator('.line-price').nth(1).fill('0.10');
+  assert.match(await page.locator('#invoice-total').textContent(),/20\.60/);
+  await save();s=await state();const invoice=s.orders.find(o=>o.account_id===customer.id);assert.equal(invoice.total_paise,2060);
+  await page.locator(`[data-receipt="${invoice.id}"]`).click();await fill('amount','10.10');await fill('reference','UI-RECEIPT-1');await save();
+  s=await state();assert.equal(s.orders.find(o=>o.id===invoice.id).outstanding_paise,1050);
+  await page.locator(`[data-invoice="${invoice.id}"]`).first().click();assert.match(await page.locator('.invoice-totals').textContent(),/10\.50/);
+  await page.screenshot({path:'test-results/invoice-preview.png',fullPage:true});
+  await page.emulateMedia({media:'print'});await page.pdf({path:'test-results/invoice.pdf'});await page.emulateMedia({media:'screen'});
+  await page.getByRole('button',{name:'Close dialog'}).click();
+  await nav('accounts');await page.locator(`[data-ledger="${customer.id}"]`).first().click();await page.locator('[name=ledger_account]').waitFor();
+  assert.equal(await page.locator('[name=ledger_account]').inputValue(),String(customer.id));assert.match(await page.locator('.stats').textContent(),/110\.50/);
+  const download=page.waitForEvent('download');await page.locator('[data-finance=ledger-export]').click();assert.match((await download).suggestedFilename(),/ledger/);
+  await nav('purchases');await page.locator('[data-action=purchase]').click();await fill('supplier','Browser Supplier');await fill('quantity','2');await fill('unit_cost','50.00');await save();
+  s=await state();const po=s.purchases.find(p=>p.supplier==='Browser Supplier');
+  await page.locator(`[data-receive="${po.id}"]`).click();await page.locator(`[data-bill-payment="${po.id}"]`).waitFor();await page.locator(`[data-bill-payment="${po.id}"]`).click();
+  await fill('amount','25.00');await fill('reference','UI-PAYMENT-1');await save();s=await state();assert.equal(s.purchases.find(p=>p.id===po.id).outstanding_paise,7500);
+  await nav('accounts');await page.locator('[data-finance=account]').click();await fill('name','Workshop electricity');await page.locator('[name=type]').selectOption('Expense');await save();
+  s=await state();const expense=s.accounts.find(a=>a.name==='Workshop electricity');
+  await page.locator('[data-finance=expense]').click();await page.locator('[name=debit_account_id]').selectOption(String(expense.id));await fill('amount','123.45');await fill('reference','UI-EXPENSE-1');await fill('description','Workshop electricity');await save();
+  s=await state();assert.equal(s.accounts.find(a=>a.id===expense.id).balance,12345);assert.equal(s.accounts.reduce((v,a)=>v+a.balance,0),0);
+  await nav('vouchers');await page.screenshot({path:'test-results/books.png',fullPage:true});
+  await nav('sales');await page.screenshot({path:'test-results/sales.png',fullPage:true});
+  await page.reload();await page.locator('h1').waitFor();s=await state();assert.equal(s.orders.find(o=>o.id===invoice.id).paid_paise,1010);
+  await page.setViewportSize({width:390,height:844});
+  for(const route of ['sales','accounts','ledgers','vouchers']){await nav(route);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,route+' overflows mobile');}
+  await nav('sales');await page.locator('[data-action=order]').click();await page.screenshot({path:'test-results/invoice-mobile.png',fullPage:true});
+  assert.equal(await page.locator('dialog').evaluate(e=>e.scrollWidth>e.clientWidth),false,'Invoice dialog overflows');
+  assert.deepEqual(errors,[]);
+  console.log('PASS: customer and opening balance, multi-item invoice, partial receipt, invoice/PDF, ledger/export, supplier payment, expense, balanced books, reload persistence, mobile layouts.');
+ }finally{await browser.close()}
+})().catch(e=>{console.error(e);process.exitCode=1});
