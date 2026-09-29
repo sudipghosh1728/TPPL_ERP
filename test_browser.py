@@ -5,7 +5,7 @@ from mongo_test_support import test_store,clean
 
 def main():
     with tempfile.TemporaryDirectory() as temp:
-        server.STORE=test_store();server.initialize(migrate_local=False)
+        server.STORE=test_store();server.initialize(migrate_local=False,demo=os.environ.get("ERP_TEST_CLEAN")!="1")
         http=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler)
         threading.Thread(target=http.serve_forever,daemon=True).start()
         try:

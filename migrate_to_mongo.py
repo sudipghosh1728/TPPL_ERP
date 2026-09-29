@@ -2,7 +2,7 @@
 import argparse,datetime,hashlib,json,pathlib,sqlite3
 from contextlib import closing
 from pymongo.errors import PyMongoError
-from storage import COLLECTIONS,MongoStore,UnitOfWork
+from storage import COLLECTIONS,DEFAULTS,KEYS,MongoStore,UnitOfWork,identifier
 
 def canonical(rows):
     def default(v):
@@ -36,7 +36,18 @@ def migrate(source,store):
             raise ValueError('Target was already migrated from a different snapshot; automatic merge is not supported')
         if any(c.one(name) for name in COLLECTIONS):raise ValueError('Target database is not empty. Migration will not overwrite or merge records.')
         for name,values in rows.items():
-            for value in values:c.insert(name,**value)
+            # Batch each collection to keep cloud round trips within the transaction lifetime.
+            documents=[]
+            for value in values:
+                doc={**DEFAULTS.get(name,{}),**value}
+                doc['_id']=doc[KEYS[name]] if name in KEYS else identifier(doc['id'])
+                if name=='accounts':doc['name_key']=doc['name'].casefold()
+                if name=='users':doc['username_key']=doc['username'].casefold()
+                documents.append(doc)
+            if documents:
+                c.db[name].insert_many(documents,session=c.session)
+                if name not in KEYS:
+                    c.db['_counters'].update_one({'_id':name},{'$max':{'value':max(d['id'] for d in documents)}},upsert=True,session=c.session)
         # Compare every source field and binary hash, not just row counts.
         for name,values in rows.items():
             migrated=c.all(name)

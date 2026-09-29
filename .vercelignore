@@ -1,0 +1,16 @@
+.env
+.env.*
+.tools
+data
+node_modules
+test-results
+__pycache__
+*.log
+*.db
+*.sqlite
+*.sqlite3
+test_*.py
+browser-*.cjs
+local_preview.py
+mongo_test_support.py
+.git

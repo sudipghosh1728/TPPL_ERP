@@ -43,7 +43,7 @@ def upload(c,jid,user,kind,file):
     if pathlib.Path(name).suffix.lower() not in extensions:raise ValueError('Use PDF, image, text, CAD, Word, or Excel documents')
     try:content=base64.b64decode(file.get('content',''),validate=True)
     except (ValueError,binascii.Error):raise ValueError('Invalid document data')
-    if not 0<len(content)<=5*1024*1024:raise ValueError('Document must be between 1 byte and 5 MB')
+    if not 0<len(content)<=3*1024*1024:raise ValueError('Document must be between 1 byte and 3 MB')
     return c.insert('job_documents',job_id=jid,kind=kind,name=name,mime='application/octet-stream',content=content,size=len(content),uploaded_by=user['id'],created_at=now())
 
 def create(c,d,user):

@@ -7,7 +7,7 @@ class WorkflowTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp=tempfile.TemporaryDirectory()
         server.STORE=test_store();cls.store=server.STORE
-        server.initialize(migrate_local=False)
+        server.initialize(migrate_local=False,demo=True)
         cls.http=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler)
         cls.url=f'http://127.0.0.1:{cls.http.server_port}'
         threading.Thread(target=cls.http.serve_forever,daemon=True).start()

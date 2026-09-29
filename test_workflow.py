@@ -5,7 +5,7 @@ from mongo_test_support import test_store,clean
 class DepartmentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp=tempfile.TemporaryDirectory();server.STORE=test_store();cls.store=server.STORE;server.initialize(migrate_local=False)
+        cls.temp=tempfile.TemporaryDirectory();server.STORE=test_store();cls.store=server.STORE;server.initialize(migrate_local=False,demo=True)
         class QuietHandler(server.Handler):
             def log_message(self,*args):pass
         cls.http=server.ThreadingHTTPServer(('127.0.0.1',0),QuietHandler)

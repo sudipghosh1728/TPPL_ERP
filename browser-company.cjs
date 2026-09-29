@@ -1,0 +1,44 @@
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch();
+ try{
+  const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(process.env.ERP_TEST_URL);
+  await page.locator('[name=name]').fill('Setup Admin');
+  await page.locator('[name=username]').fill('setup-admin');
+  await page.locator('[name=password]').fill('Setup-test-password-123');
+  await page.locator('#login-form button').click();
+  await page.locator('#company-form').waitFor();
+  await page.locator('#company-form [name=company]').fill('Northside Market');
+  await page.locator('[name=address]').fill('10 Market Road');
+  await page.locator('[name=industry]').selectOption('Supermarket');
+  await page.locator('#apply-template').click();
+  await page.locator('#company-form [type=submit]').click();
+  await page.waitForFunction(()=>document.querySelector('#company-name').textContent==='Northside Market');
+  assert.equal(await page.locator('nav a[href="#jobs"]').count(),0);
+  await page.reload();
+  await page.locator('nav a[href="#inventory"]').click();
+  await page.locator('[data-action=product]').click();
+  await page.locator('#entry-form [name=name]').fill('Tea pack');
+  await page.locator('[name=sku]').fill('TEA-001');
+  await page.locator('[name=unit]').selectOption('pack');
+  await page.locator('[name=barcode]').fill('8901234567890');
+  await page.locator('[name=custom_0]').fill('Northside');
+  await page.locator('[name=custom_1]').fill('250g');
+  await page.locator('#entry-form [type=submit]').click();
+  await page.waitForFunction(()=>!document.querySelector('#modal').open);
+  await page.getByText('Tea pack',{exact:true}).waitFor();
+  const state=await page.evaluate(async()=>await(await fetch('/api/state')).json());
+  assert.equal(state.products[0].unit,'pack');assert.equal(state.products[0].attributes.Brand,'Northside');assert.equal(state.orders.length,0);
+  const forbidden=await page.evaluate(async()=>{const r=await fetch('/api/work/create',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});return r.status});assert.equal(forbidden,403);
+  await page.locator('nav a[href="#settings"]').click();
+  await page.locator('[name=industry]').selectOption('Factory');await page.locator('#apply-template').click();
+  await page.locator('#company-form [type=submit]').click();await page.locator('nav a[href="#jobs"]').waitFor();
+  await page.setViewportSize({width:390,height:844});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  await page.screenshot({path:'test-results/company-setup.png',fullPage:true});
+  assert.deepEqual(errors,[]);console.log('Company setup, persistence, product fields, module guard, and mobile checks passed.');
+ }finally{await browser.close()}
+})().catch(e=>{console.error(e);process.exitCode=1});

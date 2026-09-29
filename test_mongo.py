@@ -11,7 +11,7 @@ class MongoIntegrationTests(unittest.TestCase):
     def tearDown(self):clean(self.store)
 
     def test_failed_transaction_leaves_no_partial_posting(self):
-        self.store.run(seed.initialize)
+        self.store.run(lambda c:seed.initialize(c,demo=True))
         before=self.store.db.products.find_one({'id':1})['stock']
         def fail(c):
             c.update('products',{'id':1},inc={'stock':-1})
@@ -22,7 +22,7 @@ class MongoIntegrationTests(unittest.TestCase):
         self.assertEqual(self.store.db.movements.count_documents({'reason':'Should roll back'}),0)
 
     def test_concurrent_sales_cannot_oversell(self):
-        self.store.run(seed.initialize)
+        self.store.run(lambda c:seed.initialize(c,demo=True))
         self.store.run(lambda c:c.update('products',{'id':1},{'stock':1}))
         def sale(index):
             try:
@@ -35,7 +35,7 @@ class MongoIntegrationTests(unittest.TestCase):
         self.assertEqual(self.store.db.orders.count_documents({'customer':'Race customer'}),1)
 
     def test_concurrent_receipts_cannot_overpay(self):
-        self.store.run(seed.initialize)
+        self.store.run(lambda c:seed.initialize(c,demo=True))
         oid=self.store.run(lambda c:accounting.create_invoice(c,dict(customer='Receipt race',product_id=1,quantity=1,items=[dict(product_id=1,quantity=1,unit_price='10.00')])))
         o=self.store.db.orders.find_one({'id':oid});bank=self.store.run(lambda c:accounting.system(c,'Main bank'))
         def receipt(index):
@@ -67,7 +67,7 @@ class MongoIntegrationTests(unittest.TestCase):
             self.assertEqual(self.store.db.users.find_one({'id':17})['name'],'Original Admin')
 
     def test_unique_accounts_and_migration_refuses_nonempty_target(self):
-        self.store.run(seed.initialize)
+        self.store.run(lambda c:seed.initialize(c,demo=True))
         with self.assertRaises(DuplicateKeyError):self.store.run(lambda c:c.insert('accounts',name='MAIN BANK',type='Bank'))
         with tempfile.TemporaryDirectory() as temp:
             source=pathlib.Path(temp)/'empty.db'

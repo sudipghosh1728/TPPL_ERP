@@ -10,3 +10,6 @@ test-results/
 *.sqlite
 *.sqlite3
 .tools/
+.vercel/
+
+.vercel

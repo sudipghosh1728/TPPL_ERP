@@ -86,6 +86,7 @@ class MongoStore:
                 except CollectionInvalid:pass
         for collection,field in [('products','sku'),('accounts','name_key'),('users','username_key'),('settings','key'),('requests','token'),('sessions','token_hash'),('login_attempts','key')]:
             self.db[collection].create_index(field,unique=True)
+        self.db.products.create_index('barcode',unique=True,partialFilterExpression={'barcode':{'$gt':''}})
         self.db.journals.create_index('source',unique=True,partialFilterExpression={'source':{'$type':'string'}})
         for collection,field in [('journal_lines','account_id'),('journal_lines','journal_id'),('invoice_items','order_id'),('settlements','order_id'),('settlements','purchase_id'),('settlements','account_id'),('sessions','user_id'),('requirements','job_id'),('job_documents','job_id'),('work_history','job_id'),('material_issues','requirement_id')]:
             self.db[collection].create_index(field)

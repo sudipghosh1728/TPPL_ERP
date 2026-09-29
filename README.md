@@ -1,8 +1,32 @@
-# TPPL One — Heavy fabrication workspace
+# VECTORone — Business and manufacturing ERP
 
-ERP prototype for heavy fabrication with native MongoDB storage. The web application runs locally and connects to your configured MongoDB Atlas cluster or a MongoDB replica set. Tally is optional. Atlas service charges, if any, depend on your cluster plan.
+VECTORone is the product name; each installation has its own company identity, configured by Admin in Settings and displayed on sales invoices. The current workflow supports mechanical manufacturing, fabrication, machining, stores, sales, and accounts. Deploy a separate application instance and MongoDB database for each customer. Shared multi-company hosting and a custom workflow designer are not implemented; industry templates configure the existing modules. Existing company records and document references remain unchanged by the product rename.
+
+Configurable ERP prototype with native MongoDB storage. The web application runs locally and connects to your configured MongoDB Atlas cluster or a MongoDB replica set. Tally is optional. Atlas service charges, if any, depend on your cluster plan.
+
+## Company configuration
+
+Admin Settings supports Factory, Supermarket, and General Business templates, company address, financial-year start, categories, warehouses, units, and custom product fields. New products accept those choices, optional unique barcodes, and custom field values. Existing records are preserved when settings change. Manufacturing can be disabled only when no production jobs remain active; its navigation and API actions are then disabled. Inventory, sales, purchasing, and accounts remain core modules.
+
+Fresh installations start with empty business registers and system ledger accounts. Fictional records are enabled only in test fixtures. Each customer needs a separate deployment directory, private configuration, database, and database user. Do not copy another customer's data or private configuration into a fresh installation.
+
+Current limits: INR, whole stock units, one location per product, and fixed department roles. POS checkout, batch/expiry tracking, tax calculation, stock transfers, configurable approval routes, and consolidated multi-company reporting are not implemented. Templates configure existing capabilities; they do not add these features. Financial-year start is metadata, not an accounting period lock.
+
+For separate local evaluation, run `python local_preview.py` with the local MongoDB replica set running on port 27018 (`tppl-test`). Open http://localhost:8001. This uses database `vectorone_preview`, does not read Atlas credentials, and does not migrate the previous SQLite data. Create your Admin account and complete Settings. This launcher is for local evaluation.
+
+Company tests: `python -m unittest test_company -v`. For the browser setup test, install npm dependencies and Playwright Chromium, set `ERP_TEST_CLEAN=1`, and run `python test_browser.py browser-company.cjs`. Tests use isolated databases, never the Atlas application database.
 
 ## Run locally
+
+## Vercel deployment
+
+`vercel.json` serves `public/` and routes `/api/*` to `api/index.py`. Set `MONGODB_URI` and `MONGODB_DATABASE` as sensitive production environment variables in Vercel. Provision the database and initial Admin locally first; the hosted endpoint deliberately rejects first-time Admin creation and never migrates or seeds the database. Deploy with `vercel deploy --prod --yes` after linking the project.
+
+Atlas must permit connections from the hosting platform, separately from the developer computer. Verify `/api/auth/session` returns JSON successfully before treating the hosted application as operational. Vercel outbound IPs may change; use an appropriate stable egress configuration for production. The runtime logs its observed public egress IP to help diagnose access-list issues, without logging credentials.
+
+Hosted cookies include Secure, HttpOnly, and SameSite=Strict. Document uploads are limited to 3 MB to keep base64 JSON requests below Vercel's 4.5 MB payload ceiling. Private files, local databases, backups, and test artifacts are excluded by `.vercelignore`. GitHub auto-deploy additionally requires linking the GitHub login in the Vercel account.
+
+## Local startup
 
 Requires Python 3.10 or later, PyMongo, and an accessible MongoDB replica set (including Atlas). Standalone MongoDB servers are rejected because accounting and stock changes require multi-document transactions.
 
@@ -18,7 +42,7 @@ Open http://localhost:8000. Stop with Ctrl+C. Set `MONGODB_URI` and `MONGODB_DAT
 
 For Atlas, allow the app computer's public IP under **Network Access** and give the database user read/write permissions on the configured database. TLS certificate verification remains enabled. A TLS handshake failure before authentication is a network/cluster/TLS problem; changing the password alone cannot establish that connection. See [Atlas connection troubleshooting](https://www.mongodb.com/docs/atlas/troubleshoot-connection/).
 
-Stop the previous SQLite application before switching storage. On first MongoDB startup, if the target is empty and `data/erp.db` exists, the server migrates it automatically and verifies every copied field and uploaded-file hash before committing. A consistent SQLite backup is written under `data/backups/`. You can run the same migration explicitly with `python migrate_to_mongo.py --source data/erp.db`. It refuses to merge into a nonempty database. Repeating the same migration is safe; a changed source is not silently imported twice. Fresh installations without a SQLite file receive fictional demo records.
+Stop the previous SQLite application before switching storage. On first MongoDB startup, if the target is empty and `data/erp.db` exists, the server migrates it automatically and verifies every copied field and uploaded-file hash before committing. A consistent SQLite backup is written under `data/backups/`. You can run the same migration explicitly with `python migrate_to_mongo.py --source data/erp.db`. It refuses to merge into a nonempty database. Repeating the same migration is safe; a changed source is not silently imported twice. Fresh installations without a SQLite file start with empty business registers and system ledger accounts.
 
 If Atlas is unavailable, startup fails with a credential-free message. The app does not silently fall back to SQLite. The original SQLite file and backups remain available for rollback; they are not kept synchronized after MongoDB takes over.
 

@@ -34,3 +34,5 @@ jobs:
           node --check public/app.js
           node --check public/finance.js
           node --check public/workflow.js
+
+          node --check public/company.js
