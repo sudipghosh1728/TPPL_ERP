@@ -1,12 +1,13 @@
 import unittest, tempfile, pathlib, threading, json, urllib.request, urllib.error
 import server
+from mongo_test_support import test_store,clean
 
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp=tempfile.TemporaryDirectory()
-        server.DB=pathlib.Path(cls.temp.name)/'erp.db'
-        server.initialize()
+        server.STORE=test_store();cls.store=server.STORE
+        server.initialize(migrate_local=False)
         cls.http=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler)
         cls.url=f'http://127.0.0.1:{cls.http.server_port}'
         threading.Thread(target=cls.http.serve_forever,daemon=True).start()
@@ -16,7 +17,7 @@ class WorkflowTests(unittest.TestCase):
         with cls.opener.open(req) as r:json.load(r)
     @classmethod
     def tearDownClass(cls):
-        cls.http.shutdown(); cls.http.server_close(); cls.temp.cleanup()
+        cls.http.shutdown(); cls.http.server_close(); cls.temp.cleanup();clean(cls.store)
     def request(self,path,data=None):
         req=urllib.request.Request(self.url+'/api/'+path,data=json.dumps(data).encode() if data is not None else None,headers={'Content-Type':'application/json'})
         try:

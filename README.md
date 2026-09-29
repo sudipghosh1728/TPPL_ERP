@@ -1,17 +1,26 @@
 # TPPL One — Heavy fabrication workspace
 
-Independent local ERP prototype for heavy fabrication. No Tally connection or paid service is required to run it. All business records are stored in SQLite on your computer.
+ERP prototype for heavy fabrication with native MongoDB storage. The web application runs locally and connects to your configured MongoDB Atlas cluster or a MongoDB replica set. Tally is optional. Atlas service charges, if any, depend on your cluster plan.
 
 ## Run locally
 
-Requires Python 3.10 or later. No Python packages need installing.
+Requires Python 3.10 or later, PyMongo, and an accessible MongoDB replica set (including Atlas). Standalone MongoDB servers are rejected because accounting and stock changes require multi-document transactions.
 
 ```powershell
 cd E:\TPPL_ERP
+python -m pip install -r requirements.txt
+# First setup only: copy .env.example to .env and fill in your private connection.
+python config.py
 python server.py
 ```
 
-Open http://localhost:8000. Sample data is created on the first launch. Stop with Ctrl+C. If already running, use the existing browser address.
+Open http://localhost:8000. Stop with Ctrl+C. Set `MONGODB_URI` and `MONGODB_DATABASE` in `.env` or environment variables. Environment variables take precedence. Password characters in the URI must be percent-encoded (for example, `@` becomes `%40`). Never commit `.env`. `python config.py` checks connectivity without printing credentials.
+
+For Atlas, allow the app computer's public IP under **Network Access** and give the database user read/write permissions on the configured database. TLS certificate verification remains enabled. A TLS handshake failure before authentication is a network/cluster/TLS problem; changing the password alone cannot establish that connection. See [Atlas connection troubleshooting](https://www.mongodb.com/docs/atlas/troubleshoot-connection/).
+
+Stop the previous SQLite application before switching storage. On first MongoDB startup, if the target is empty and `data/erp.db` exists, the server migrates it automatically and verifies every copied field and uploaded-file hash before committing. A consistent SQLite backup is written under `data/backups/`. You can run the same migration explicitly with `python migrate_to_mongo.py --source data/erp.db`. It refuses to merge into a nonempty database. Repeating the same migration is safe; a changed source is not silently imported twice. Fresh installations without a SQLite file receive fictional demo records.
+
+If Atlas is unavailable, startup fails with a credential-free message. The app does not silently fall back to SQLite. The original SQLite file and backups remain available for rollback; they are not kept synchronized after MongoDB takes over.
 
 The first visit displays **Create your Admin account**. Choose your own username and a password of at least 10 characters. There are no built-in passwords. In **Users & departments**, Admin can create named users for Design, Machining, Fabrication, Store, and Accounts, reset their passwords, or disable access. Use separate browser profiles/private windows when demonstrating multiple departments.
 
@@ -32,7 +41,7 @@ The first visit displays **Create your Admin account**. Choose your own username
 - Inventory receipts, low-stock indicators, warehouse valuation, procurement reports, and CSV export.
 - Company settings, activity history, and optional Tally sales voucher XML export.
 
-The SQLite database is `data/erp.db` and is excluded from Git. Back it up while the server is stopped. The seed records are fictional. Inventory quantities are whole stock units; unit prices and sales totals exclude tax. Dashboard inventory value uses listed price and is not accounting inventory valuation.
+MongoDB collections hold business records, users, sessions, and uploaded document bytes. Keep credentials and backups outside Git, and configure MongoDB/Atlas backups for the active database. The old `data/erp.db` is only a migration source/backup, not the active database after switching. Inventory quantities are whole stock units; unit prices and sales totals exclude tax. Dashboard inventory value uses listed price and is not accounting inventory valuation.
 
 ## Scope before production use
 
@@ -54,7 +63,7 @@ Jobs that do not need machining never appear in the Machining workspace or its d
 
 **Accounts is a separate workflow:** customer/supplier ledgers, sales, receipts/payments, expense vouchers, trial balance, and supplier purchase orders. Store receives these supplier POs, which posts the supplier bill to Accounts. Customer POs uploaded to manufacturing are job documents; they do not automatically create a sales invoice or accounting entry.
 
-Uploaded documents are stored inside the local SQLite database and downloaded through authenticated, job-authorized endpoints. Supported files are PDF, PNG/JPEG, TXT/CSV, DWG/DXF, STEP/STP, DOCX, and XLSX, up to 5 MB each. Files are downloaded rather than rendered inline. TC validation checks attachment presence and a reference, not the technical authenticity of certificate contents.
+Uploaded documents are stored as MongoDB binary fields and downloaded through authenticated, job-authorized endpoints. Supported files are PDF, PNG/JPEG, TXT/CSV, DWG/DXF, STEP/STP, DOCX, and XLSX, up to 5 MB each. Files are downloaded rather than rendered inline. TC validation checks attachment presence and a reference, not the technical authenticity of certificate contents.
 
 New jobs use the departmental workflow. Earlier single-material prototype jobs remain visible to Admin as a read-only register. Existing sales, stock, and financial postings are preserved. Manufacturing stock issues track quantities but do not yet post inventory/WIP accounting entries.
 
@@ -89,10 +98,23 @@ node --check public/finance.js
 node --check public/workflow.js
 ```
 
-Tests use a temporary database and verify purchase receipt, duplicate prevention, material issue, job completion, multi-item invoices, monetary precision, partial settlements, overpayment rejection, balanced postings, rollback, migration idempotence, persistence, and XML structure.
+Tests require a dedicated MongoDB replica set. By default they connect to `mongodb://127.0.0.1:27018/?replicaSet=tppl-test`; override with `MONGODB_TEST_URI`. Tests never read the Atlas credentials from `.env`. Each test suite creates and removes a uniquely named `tppl_test_*` database. They verify purchase receipt, duplicate prevention, material issue, job completion, invoices, precision, payments, balanced postings, rollback, migration, persistence, and XML structure. Additional real-MongoDB tests cover competing stock deductions and receipts, binary/password migration, unique indexes, and refusing to overwrite existing targets.
+
+To start a local test replica set with Docker:
+
+```powershell
+docker run -d --name tppl-test-mongo -p 127.0.0.1:27018:27018 mongo:8.0 --replSet tppl-test --bind_ip_all --port 27018
+docker exec tppl-test-mongo mongosh --port 27018 --eval 'rs.initiate({_id:"tppl-test",members:[{_id:0,host:"127.0.0.1:27018"}]})'
+```
+
+Wait for the node to become primary before running tests. GitHub Actions starts its own isolated MongoDB replica set.
 
 Department tests additionally cover both job routes, prohibited actions, document access, TC enforcement, partial stock issue, stale versions, revision requests, disabled users, cross-site request rejection, and data filtering.
 
-Browser tests require Playwright and its Chromium browser. With Playwright installed, run `python test_browser.py` for an isolated finance workflow and `python test_browser.py browser-workflow.cjs` for the six-department manufacturing flow. Both create disposable databases and test-only accounts. `node browser-check.cjs` runs read-only checks of the local app with an existing Admin account supplied through `ERP_USER` and `ERP_PASSWORD`. If Playwright is outside this project, set `PLAYWRIGHT_MODULE` to its installed module path. Screenshots and a sample invoice PDF are written under `test-results/`. GitHub Actions runs backend tests and JavaScript syntax checks on pushes and pull requests.
+Browser tests also require Playwright and its Chromium browser. Run `python test_browser.py` for an isolated finance workflow and `python test_browser.py browser-workflow.cjs` for the six-department manufacturing flow. Both use the test replica set, disposable databases, and test-only accounts. `node browser-check.cjs` runs read-only checks of the local app with an existing Admin account supplied through `ERP_USER` and `ERP_PASSWORD`. If Playwright is outside this project, set `PLAYWRIGHT_MODULE` to its installed module path. Screenshots and a sample invoice PDF are written under `test-results/`.
+
+## MongoDB implementation
+
+`storage.py` uses native PyMongo operations, not an SQL compatibility layer. `with_transaction()` retries transient conflicts and commits before HTTP success is returned. Unique indexes protect ledger names, usernames, SKUs, and journal sources; integer counters preserve existing user-facing IDs. The conversion keeps all earlier accounting, authorization, and manufacturing rules. See [PyMongo transactions](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/crud/transactions/) and [connection options](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/connect/connection-options/).
 
 Repository: https://github.com/sudipghosh1728/TPPL_ERP. Local databases, user credentials/sessions, uploaded documents, backups, logs, and test output are excluded from version control.

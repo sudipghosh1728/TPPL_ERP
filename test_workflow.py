@@ -1,10 +1,11 @@
 import base64, http.cookiejar, json, pathlib, tempfile, threading, unittest, urllib.request, urllib.error
 import server
+from mongo_test_support import test_store,clean
 
 class DepartmentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp=tempfile.TemporaryDirectory();server.DB=pathlib.Path(cls.temp.name)/'erp.db';server.initialize()
+        cls.temp=tempfile.TemporaryDirectory();server.STORE=test_store();cls.store=server.STORE;server.initialize(migrate_local=False)
         class QuietHandler(server.Handler):
             def log_message(self,*args):pass
         cls.http=server.ThreadingHTTPServer(('127.0.0.1',0),QuietHandler)
@@ -17,7 +18,7 @@ class DepartmentTests(unittest.TestCase):
             cls.call('Admin','users',dict(username=role.lower(),name=role+' User',role=role,password=cls.password))
             cls.call(role,'auth/login',dict(username=role.lower(),password=cls.password))
     @classmethod
-    def tearDownClass(cls):cls.http.shutdown();cls.http.server_close();cls.temp.cleanup()
+    def tearDownClass(cls):cls.http.shutdown();cls.http.server_close();cls.temp.cleanup();clean(cls.store)
     @classmethod
     def call(cls,role,path,data=None,headers=None):
         req=urllib.request.Request(cls.url+'/api/'+path,data=json.dumps(data).encode() if data is not None else None,headers={'Content-Type':'application/json',**(headers or {})})

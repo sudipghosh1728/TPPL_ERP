@@ -1,6 +1,7 @@
 """Password authentication, expiring sessions, and department permissions."""
 import hashlib, hmac, secrets, time
 from http.cookies import SimpleCookie
+from storage import identifier
 
 ROLES=('Admin','Design','Machining','Fabrication','Store','Accounts')
 PERMISSIONS={
@@ -14,12 +15,7 @@ class AccessError(Exception):
     def __init__(self,message,status=403): self.status=status;super().__init__(message)
 
 def initialize(c):
-    c.executescript('''
-    CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE,
-      name TEXT NOT NULL, role TEXT NOT NULL, password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
-    CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),expires REAL NOT NULL);
-    CREATE TABLE IF NOT EXISTS login_attempts(key TEXT PRIMARY KEY, failures INTEGER NOT NULL, until REAL NOT NULL);
-    ''')
+    pass  # MongoDB collections and indexes are initialized by storage.MongoStore.
 
 def password_hash(password):
     if not isinstance(password,str) or not 10<=len(password)<=200:
@@ -41,8 +37,8 @@ def current(c,cookie):
         cookies=SimpleCookie();cookies.load(cookie or '')
         token=cookies['tppl_session'].value
     except (KeyError,ValueError):return None
-    user=c.execute('SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.token_hash=? AND s.expires>? AND u.active=1',
-                   (hashlib.sha256(token.encode()).hexdigest(),time.time())).fetchone()
+    session=c.one('sessions',{'token_hash':hashlib.sha256(token.encode()).hexdigest(),'expires':{'$gt':time.time()}})
+    user=c.one('users',{'id':session['user_id'],'active':1}) if session else None
     return public(user) if user else None
 
 def require(user,roles=()):
@@ -56,42 +52,41 @@ def create_user(c,d):
     name=str(d.get('name','')).strip();role=d.get('role')
     if not name or len(name)>100:raise ValueError('Enter a display name')
     if role not in ROLES:raise ValueError('Select a valid department')
-    return c.execute('INSERT INTO users(username,name,role,password_hash) VALUES(?,?,?,?)',
-                     (username,name,role,password_hash(d.get('password')))).lastrowid
+    return c.insert('users',username=username,name=name,role=role,password_hash=password_hash(d.get('password')))
 
 def login(c,d,ip):
     username=str(d.get('username','')).strip().lower();key=ip
-    record=c.execute('SELECT * FROM login_attempts WHERE key=?',(key,)).fetchone()
+    record=c.one('login_attempts',{'key':key})
     if record and record['until']>time.time() and record['failures']>=10:
         return None,None,'Too many sign-in attempts. Try again in 15 minutes.'
-    user=c.execute('SELECT * FROM users WHERE username=? AND active=1',(username,)).fetchone()
+    user=c.one('users',{'username_key':username.casefold(),'active':1})
     if not user or not verify(d.get('password'),user['password_hash']):
         failures=(record['failures'] if record and record['until']>time.time() else 0)+1
-        c.execute('INSERT INTO login_attempts VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET failures=excluded.failures,until=excluded.until',(key,failures,time.time()+900))
+        c.update('login_attempts',{'_id':key},{'key':key,'failures':failures,'until':time.time()+900},upsert=True)
         return None,None,'Incorrect username or password'
-    c.execute('DELETE FROM login_attempts WHERE key=?',(key,))
-    c.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
+    c.delete('login_attempts',{'key':key})
+    c.delete('sessions',{'expires':{'$lt':time.time()}})
     token=secrets.token_urlsafe(40)
-    c.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),user['id'],time.time()+86400))
+    c.insert('sessions',token_hash=hashlib.sha256(token.encode()).hexdigest(),user_id=user['id'],expires=time.time()+86400)
     return public(user),token,None
 
 def manage_user(c,d,actor):
     require(actor)
     if not d.get('id'):return create_user(c,d)
-    u=c.execute('SELECT * FROM users WHERE id=?',(d['id'],)).fetchone()
+    u=c.one('users',{'id':identifier(d['id'])})
     if not u:raise ValueError('User not found')
     active=d.get('active',u['active']);role=d.get('role',u['role'])
     if active not in (0,1) or role not in ROLES:raise ValueError('Invalid user status or role')
     if u['id']==actor['id'] and (not active or role!='Admin'):raise ValueError('You cannot disable or demote your own Admin account')
     name=str(d.get('name',u['name'])).strip()
     if not name or len(name)>100:raise ValueError('Enter a display name')
-    c.execute('UPDATE users SET name=?,role=?,active=? WHERE id=?',(name,role,active,u['id']))
-    if d.get('password'):c.execute('UPDATE users SET password_hash=? WHERE id=?',(password_hash(d['password']),u['id']))
-    c.execute('DELETE FROM sessions WHERE user_id=?',(u['id'],))
+    c.update('users',{'id':u['id']},{'name':name,'role':role,'active':active})
+    if d.get('password'):c.update('users',{'id':u['id']},{'password_hash':password_hash(d['password'])})
+    c.delete('sessions',{'user_id':u['id']})
 
 def filter_state(c,data,user):
     role=user['role'];data['user']=user
-    data['users']=[public(u) for u in c.execute('SELECT * FROM users ORDER BY role,name')] if role=='Admin' else []
+    data['users']=[public(u) for u in c.all('users',sort=[('role',1),('name',1)])] if role=='Admin' else []
     if role not in ('Admin','Accounts'):
         for key in ('orders','accounts','journals','journal_lines','invoice_items','settlements','activity'):
             data[key]=[]

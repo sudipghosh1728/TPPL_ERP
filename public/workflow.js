@@ -13,6 +13,8 @@ function loginScreen(){
  $('#login-form').onsubmit=async e=>{e.preventDefault();const f=e.target,button=f.querySelector('button');button.disabled=true;try{await authCall(setupRequired?'setup':'login',Object.fromEntries(new FormData(f)));await boot()}catch(err){f.querySelector('.form-error').textContent=err.message}finally{button.disabled=false}};
 }
 function bindSession(){
+ const engine=state.database?.engine||'SQLite (previous server)';
+ $('.connection').innerHTML=`<span class="dot"></span> ${esc(engine)} connected<small>${state.database?'Business records are saved in your database.':'Restart after MongoDB setup to switch storage.'}</small>`;
  const profile=$('.profile');profile.innerHTML=`<div class="avatar purple">${esc(sessionUser.name.split(' ').map(s=>s[0]).slice(0,2).join(''))}</div><div><strong>${esc(sessionUser.name)}</strong><small>${sessionUser.role}</small></div><button class="icon-button" data-work="logout" title="Sign out" aria-label="Sign out">↪</button>`;
  $('.header-right').innerHTML=`<span class="role-chip">${sessionUser.role} workspace</span><button class="secondary small-button" data-work="refresh">↻ Refresh</button><button class="secondary small-button" data-work="password">My password</button>`;
 }

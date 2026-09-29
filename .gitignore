@@ -5,6 +5,8 @@ test-results/
 *.log
 .env
 .env.*
+!.env.example
 *.db
 *.sqlite
 *.sqlite3
+.tools/
