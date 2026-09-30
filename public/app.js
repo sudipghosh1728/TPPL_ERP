@@ -10,7 +10,7 @@ const names={dashboard:'Overview',sales:'Sales & invoices',accounts:'Accounts & 
 
 const product=id=>state.products.find(e=>e.id===id), badge=s=>`<span class="badge ${['Paid','Present','Approved'].includes(s)?'green':['Pending','Low stock','Absent'].includes(s)?'amber':'gray'}">${esc(s)}</span>`;
 
-async function load(){const r=await fetch('/api/state');if(r.status===401){sessionUser=null;loginScreen();return}if(!r.ok)throw Error('Cannot load workspace');state=await r.json();sessionUser=state.user;render()}
+async function load(){const r=await fetch('/api/state',{signal:AbortSignal.timeout(25000)});if(r.status===401){sessionUser=null;loginScreen();return}if(!r.ok)throw Error('Cannot load workspace');state=await r.json();sessionUser=state.user;render()}
 
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),3500)}
 

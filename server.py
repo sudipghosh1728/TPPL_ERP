@@ -140,6 +140,10 @@ def write_api(c,path,d,cookie,ip):
         signed,token,error=access.login(c,d,ip)
 
         if error:return {'error':error,'_status':401}
+        portal=d.get('portal')
+        if (portal=='admin' and signed['role']!='Admin') or (portal=='user' and signed['role']=='Admin'):
+            c.delete('sessions',{'token_hash':hashlib.sha256(token.encode()).hexdigest()})
+            return {'error':'Use the Admin panel for Admin accounts and the User portal for department accounts.','_status':403}
 
         return {'user':signed,'_cookie':'tppl_session='+token+'; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400'}
 
@@ -309,6 +313,9 @@ class Handler(SimpleHTTPRequestHandler):
 
         path=urlparse(self.path).path
 
+        if path.rstrip('/') in ('/admin','/user'):
+            self.path='/index.html'
+            return super().do_GET()
         if not path.startswith('/api/'):return super().do_GET()
 
         try:
