@@ -1,7 +1,5 @@
 """Vercel HTTP entry point; uses the already provisioned Atlas database."""
 import threading
-import ipaddress
-import urllib.request
 from pymongo import timeout
 from urllib.parse import urlparse
 import server
@@ -10,18 +8,24 @@ from storage import MongoStore
 _lock = threading.Lock()
 
 class handler(server.Handler):
+    def failure(self, error):
+        # Log categories only: driver exception text can contain private connection details.
+        message = str(error).lower()
+        categories = [label for label, terms in {
+            'dns': ('dns', 'resolution', 'nameserver', 'srv'),
+            'tls': ('ssl', 'tls', 'certificate'),
+            'authentication': ('authentication failed', 'bad auth'),
+            'timeout': ('timed out', 'timeout'),
+            'network': ('connection refused', 'network is unreachable'),
+        }.items() if any(term in message for term in terms)]
+        print('Database request failure: '+type(error).__name__+' categories='+','.join(categories), flush=True)
+        return super().failure(error)
+
     def ready(self):
         if server.STORE is None:
             with _lock:
                 if server.STORE is None:
                     server.STORE = MongoStore()
-                    # Record only the public egress address for Atlas network diagnostics.
-                    try:
-                        with urllib.request.urlopen('https://api.ipify.org', timeout=3) as response:
-                            address = str(ipaddress.ip_address(response.read(64).decode().strip()))
-                        print('Vercel outbound IP: '+address, flush=True)
-                    except Exception:
-                        pass
 
     def reply(self, data, status=200, content_type='application/json', cookie=None):
         if cookie:

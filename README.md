@@ -22,7 +22,7 @@ Company tests: `python -m unittest test_company -v`. For the browser setup test,
 
 `vercel.json` serves `public/` and routes `/api/*` to `api/index.py`. Set `MONGODB_URI` and `MONGODB_DATABASE` as sensitive production environment variables in Vercel. Provision the database and initial Admin locally first; the hosted endpoint deliberately rejects first-time Admin creation and never migrates or seeds the database. Deploy with `vercel deploy --prod --yes` after linking the project.
 
-Atlas must permit connections from the hosting platform, separately from the developer computer. Verify `/api/auth/session` returns JSON successfully before treating the hosted application as operational. Vercel outbound IPs may change; use an appropriate stable egress configuration for production. The runtime logs its observed public egress IP to help diagnose access-list issues, without logging credentials.
+Atlas must permit connections from the hosting platform, separately from the developer computer. Verify `/api/auth/session` returns JSON successfully before treating the hosted application as operational. Vercel outbound IPs may change; use an appropriate stable egress configuration for production. Connection failures log diagnostic categories without credentials. Startup does not call an external IP lookup service.
 
 Hosted cookies include Secure, HttpOnly, and SameSite=Strict. Document uploads are limited to 3 MB to keep base64 JSON requests below Vercel's 4.5 MB payload ceiling. Private files, local databases, backups, and test artifacts are excluded by `.vercelignore`. GitHub auto-deploy additionally requires linking the GitHub login in the Vercel account.
 

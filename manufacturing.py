@@ -154,9 +154,12 @@ def issue(c,d,user):
     bump(c,job['id']);history(c,job['id'],user,f'Issued {qty} units against requirement {r["id"]}',reference)
 
 def state(c,data,user):
+    for key in ('work_jobs','requirements','job_documents','work_history','material_issues'):data[key]=[]
+    if user['role']=='Accounts':return
     query={} if user['role'] in ('Admin','Design','Fabrication','Store') else {'machining_required':1,'stage':{'$nin':['Design review','Admin revision']}} if user['role']=='Machining' else {'id':-1}
     jobs=c.all('work_jobs',query,sort=[('id',-1)])
     ids={j['id'] for j in jobs};data['work_jobs']=jobs
+    if not ids:return
     query={'job_id':{'$in':list(ids)}}
     data['requirements']=c.all('requirements',query,sort=[('id',1)])
     data['job_documents']=c.all('job_documents',query,sort=[('id',1)],projection={'content':0})

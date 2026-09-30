@@ -11,12 +11,16 @@ function connectionScreen(message='Connecting to your workspace…',failed=false
  $('#app').innerHTML=`<section class="login-card" style="margin:8vh auto;max-width:560px"><div class="eyebrow">GREY one</div><h1>${failed?'Workspace unavailable':'Opening your workspace'}</h1><p role="status">${esc(message)}</p>${failed?'<button class="primary" id="retry-connection">Try again</button>':''}<p><a href="/admin">Admin panel</a> · <a href="/user">User portal</a></p></section>`;
  if(failed)$('#retry-connection').onclick=boot;
 }
-async function boot(){
+async function boot(authenticatedUser=null){
  connectionScreen();
  try{
+  if(authenticatedUser instanceof Event)authenticatedUser=null;
+  let data;
+  if(authenticatedUser){data={user:authenticatedUser,setup_required:false}}else{
   const r=await fetch('/api/auth/session',{signal:AbortSignal.timeout(25000)});
   if(!r.ok)throw Error('The database is currently unreachable. Please retry shortly or contact your administrator.');
-  const data=await r.json();sessionUser=data.user;setupRequired=data.setup_required;
+  data=await r.json();}
+  sessionUser=data.user;setupRequired=data.setup_required;
   if(setupRequired&&portal==='user'){connectionScreen('Your administrator must finish company setup before users can sign in.',true);return}
   if(sessionUser){
    const target=sessionUser.role==='Admin'?'/admin':'/user';portal=target.slice(1);
@@ -29,7 +33,7 @@ function loginScreen(){
  document.body.classList.add('signed-out');$('#modal').close();
  $('#app').innerHTML=`<div class="login-layout"><div class="login-story"><div class="brand"><span class="brand-icon">g<span>•</span></span> <span>GREY <span class="brand-one">one</span></span></div><span class="eyebrow">YOUR BUSINESS, CONNECTED</span><h1>Your company.<br>One connected workspace.</h1><p>Connect your products, inventory, sales, accounts and teams in one company workspace.</p><div class="login-flow"><span>Admin</span>→<span>Design</span>→<span>Production</span>→<span>Store</span></div></div><section class="login-card"><span class="eyebrow">${setupRequired?'FIRST-TIME SETUP':portal==='admin'?'ADMIN PANEL':'USER PORTAL'}</span><h2>${setupRequired?'Create your Admin account':portal==='admin'?'Admin sign in':'User sign in'}</h2><p>${setupRequired?'The Admin can create accounts for Design, Machining, Fabrication, Store, and Accounts.':'Sign in with the username and password provided by your Admin.'}</p><form id="login-form">${setupRequired?field('Your name','name'):''}${field('Username','username')}${field(setupRequired?'Password · minimum 10 characters':'Password','password','password')}<div class="form-error" role="alert"></div><button class="primary" type="submit">${setupRequired?'Create workspace access':'Sign in →'}</button></form><p><a href="/admin">Admin panel →</a> · <a href="/user">User portal →</a></p><small>Secure company workspace</small></section></div>`;
  $('#login-form [name=username]').autocomplete='username';$('#login-form [name=password]').autocomplete=setupRequired?'new-password':'current-password';
- $('#login-form').onsubmit=async e=>{e.preventDefault();const f=e.target,button=f.querySelector('button');button.disabled=true;try{await authCall(setupRequired?'setup':'login',{...Object.fromEntries(new FormData(f)),portal});await boot()}catch(err){f.querySelector('.form-error').textContent=err.message}finally{button.disabled=false}};
+ $('#login-form').onsubmit=async e=>{e.preventDefault();const f=e.target,button=f.querySelector('button');button.disabled=true;try{const result=await authCall(setupRequired?'setup':'login',{...Object.fromEntries(new FormData(f)),portal});await boot(result.user)}catch(err){f.querySelector('.form-error').textContent=err.message}finally{button.disabled=false}};
 }
 function bindSession(){
  const engine=state.database?.engine||'SQLite (previous server)';

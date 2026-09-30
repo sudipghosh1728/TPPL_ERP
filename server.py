@@ -75,7 +75,7 @@ def read_api(c,path,cookie):
 
     user=access.current(c,cookie)
 
-    if path=='/api/auth/session':return {'user':user,'setup_required':not bool(c.one('users'))}
+    if path=='/api/auth/session':return {'user':user,'setup_required':False if user else not bool(c.one('users'))}
 
     if not user:raise access.AccessError('Please sign in to continue',401)
 
@@ -93,13 +93,23 @@ def read_api(c,path,cookie):
 
     if path=='/api/state':
 
-        data={t:c.all(t,sort=[('id',-1)]) for t in ('products','orders','movements','activity','purchases','jobs')}
+        role=user['role']
+        tables=['products']
+        if role in ('Admin','Accounts'):tables+=['orders','activity']
+        if role in ('Admin','Store'):tables+=['movements']
+        if role in ('Admin','Store','Accounts'):tables+=['purchases']
+        if role=='Admin':tables+=['jobs']
+        data={t:[] for t in ('products','orders','movements','activity','purchases','jobs','accounts','journals','journal_lines','invoice_items','settlements')}
+        for t in tables:data[t]=c.all(t,sort=[('id',-1)])
 
         data['settings']={r['key']:r['value'] for r in c.all('settings')}
 
-        accounting.state(c,data);manufacturing.state(c,data,user);access.filter_state(c,data,user)
+        if role in ('Admin','Accounts'):accounting.state(c,data)
+        manufacturing.state(c,data,user)
+        workspace=data['settings'].get('workspace')
+        access.filter_state(c,data,user)
 
-        data['workspace']=company_config.get(c)
+        data['workspace']=workspace or company_config.get(c)
 
         data['templates']=company_config.TEMPLATES if user['role']=='Admin' else {}
 
