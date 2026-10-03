@@ -1,0 +1,20 @@
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch();try{
+ const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.ERP_TEST_URL+'/admin');await page.locator('[name=name]').fill('Store Test Admin');await page.locator('[name=username]').fill('store-test-admin');await page.locator('[name=password]').fill('Store-browser-password-123');await page.locator('#login-form button').click();await page.locator('nav a').first().waitFor();
+ await page.evaluate(async()=>{await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'store-operator',name:'Store Operator',role:'Store',password:'Store-browser-password-123'})});await fetch('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})});
+ await page.goto(process.env.ERP_TEST_URL+'/user');await page.locator('[name=username]').fill('store-operator');await page.locator('[name=password]').fill('Store-browser-password-123');await page.locator('#login-form button').click();await page.locator('nav a[href="#inventory"]').waitFor();
+ const state=()=>page.evaluate(async()=>await(await fetch('/api/state')).json());let s=await state();const p=s.products[0],initial=p.stock;
+ await page.locator('[data-store=inbound]').click();await page.locator('#store-form [name=party]').fill('Steel Supplier');await page.locator('#store-form [name=quantity]').fill('10');await page.locator('#store-form button[value=post]').click();await page.waitForFunction(()=>!document.querySelector('#modal').open);
+ s=await state();assert.equal(s.products.find(x=>x.id===p.id).stock,initial+10);
+ await page.locator('[data-store=issue]').click();await page.locator('#store-form [name=party]').fill('Blasting vendor');await page.locator('[name=vehicle]').fill('MH46BU4158');await page.locator('#store-form [name=quantity]').fill('4');await page.locator('#store-form [name=hsn]').fill('7208');await page.locator('#store-form button[value=save]').click();await page.waitForFunction(()=>!document.querySelector('#modal').open);
+ s=await state();assert.equal(s.products.find(x=>x.id===p.id).stock,initial+10);const draft=s.store_documents[0];
+ await page.locator(`[data-store=edit][data-id="${draft.id}"]`).click();await page.locator('#store-form [name=quantity]').fill('3');await page.locator('#store-form button[value=post]').click();await page.waitForFunction(()=>!document.querySelector('#modal').open);
+ s=await state();assert.equal(s.products.find(x=>x.id===p.id).stock,initial+7);assert.equal(s.work_jobs.length,0);
+ await page.locator(`[data-store=view][data-id="${draft.id}"]`).click();await page.getByText('DELIVERY CHALLAN',{exact:true}).waitFor();assert(await page.getByText('MH46BU4158',{exact:false}).isVisible());await page.pdf({path:'test-results/store-challan.pdf',format:'A4'});
+ await page.locator('[data-store=eway]').click();await page.locator('#store-action [name=eway_number]').fill('123456789012');await page.locator('#store-action button').click();await page.waitForFunction(()=>!document.querySelector('#modal').open);
+ await page.locator('nav a[href="#inventory"]').click();await page.getByText('CONSUMED / ISSUED',{exact:true}).waitFor();await page.reload();await page.getByText('CONSUMED / ISSUED',{exact:true}).waitFor();
+ await page.setViewportSize({width:390,height:844});await page.locator('[data-store=issue]').click();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:'test-results/store-mobile.png',fullPage:true});assert.deepEqual(errors,[]);
+ console.log('PASS: Store-only inbound, draft edit, direct issue, stock totals, challan PDF, e-way reference, reload and mobile.');
+}finally{await browser.close()}})().catch(e=>{console.error(e);process.exitCode=1});

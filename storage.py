@@ -8,7 +8,7 @@ import config
 
 COLLECTIONS=('products','orders','movements','activity','settings','purchases','jobs','accounts','journals',
              'journal_lines','invoice_items','settlements','requests','users','sessions','login_attempts',
-             'work_jobs','job_documents','requirements','work_history','material_issues')
+             'work_jobs','job_documents','requirements','work_history','material_issues','store_documents')
 KEYS={'settings':'key','requests':'token','sessions':'token_hash','login_attempts':'key'}
 DEFAULTS={
  'accounts':dict(email='',phone='',address='',system=0),

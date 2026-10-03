@@ -6,3 +6,5 @@ aside > .brand { font-size: 22px; padding-inline: 8px; gap: 6px; }
 aside > .brand .brand-icon { flex-shrink: 0; }
 
 .setup-panel{padding:28px;margin-bottom:24px}.setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px}.setup-steps{display:flex;gap:24px;padding-bottom:24px;color:var(--green);font-weight:700}.setup-panel textarea{font:inherit;border:1px solid var(--line);border-radius:8px;padding:12px;resize:vertical}.module-toggle{display:flex;gap:10px;align-items:flex-start;margin:24px 0}.setup-panel h2{margin-bottom:18px}@media(max-width:800px){.setup-grid{grid-template-columns:1fr}.setup-steps{flex-direction:column;gap:8px}}
+
+.store-line{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 2fr auto;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:12px 0}.store-line input,.store-line select{min-width:0;width:100%}@media(max-width:800px){.store-line{grid-template-columns:1fr 1fr}.store-line .field:first-child{grid-column:1/-1}}

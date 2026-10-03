@@ -36,3 +36,4 @@ jobs:
           node --check public/workflow.js
 
           node --check public/company.js
+          node --check public/store.js

@@ -141,7 +141,7 @@ def issue(c,d,user):
     r=c.one('requirements',{'id':identifier(d.get('requirement_id'))})
     if not r:raise ValueError('Requirement not found')
     job=get_job(c,r['job_id'],user);version(job,d)
-    if not r['approved'] or job['stage'] not in ('Machining execution','Fabrication execution'):raise ValueError('Fabrication must approve requirements before Store can issue material')
+    if job['stage']=='Completed':raise ValueError('This job is completed; use an independent Store issue for additional material')
     qty=whole(d.get('quantity'))
     if qty>r['quantity']-r['issued']:raise ValueError('Quantity exceeds the remaining requirement')
     tc_id=identifier(d['tc_document_id']) if d.get('tc_document_id') else None;reference=str(d.get('tc_reference','')).strip()[:200]

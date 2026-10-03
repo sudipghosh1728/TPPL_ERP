@@ -87,7 +87,7 @@ Jobs that do not need machining never appear in the Machining workspace or its d
 
 **Accounts is a separate workflow:** customer/supplier ledgers, sales, receipts/payments, expense vouchers, trial balance, and supplier purchase orders. Store receives these supplier POs, which posts the supplier bill to Accounts. Customer POs uploaded to manufacturing are job documents; they do not automatically create a sales invoice or accounting entry.
 
-Uploaded documents are stored as MongoDB binary fields and downloaded through authenticated, job-authorized endpoints. Supported files are PDF, PNG/JPEG, TXT/CSV, DWG/DXF, STEP/STP, DOCX, and XLSX, up to 5 MB each. Files are downloaded rather than rendered inline. TC validation checks attachment presence and a reference, not the technical authenticity of certificate contents.
+Uploaded documents are stored as MongoDB binary fields and downloaded through authenticated, job-authorized endpoints. Supported files are PDF, PNG/JPEG, TXT/CSV, DWG/DXF, STEP/STP, DOCX, and XLSX, up to 3 MB each. Files are downloaded rather than rendered inline. TC validation checks attachment presence and a reference, not the technical authenticity of certificate contents.
 
 New jobs use the departmental workflow. Earlier single-material prototype jobs remain visible to Admin as a read-only register. Existing sales, stock, and financial postings are preserved. Manufacturing stock issues track quantities but do not yet post inventory/WIP accounting entries.
 
@@ -142,3 +142,16 @@ Browser tests also require Playwright and its Chromium browser. Run `python test
 `storage.py` uses native PyMongo operations, not an SQL compatibility layer. `with_transaction()` retries transient conflicts and commits before HTTP success is returned. Unique indexes protect ledger names, usernames, SKUs, and journal sources; integer counters preserve existing user-facing IDs. The conversion keeps all earlier accounting, authorization, and manufacturing rules. See [PyMongo transactions](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/crud/transactions/) and [connection options](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/connect/connection-options/).
 
 Repository: https://github.com/sudipghosh1728/TPPL_ERP. Local databases, user credentials/sessions, uploaded documents, backups, logs, and test output are excluded from version control.
+
+
+## Independent Store operations
+
+Store and Admin can use **Store operations** for inbound receipts (GRN) and outbound material issues / delivery challans (DC). No job, purchase order, department approval, or manufacturing module is required. Save a draft to edit later, or post directly to apply the stock movement. Posting is atomic, rejects insufficient stock and duplicate material lines, and preserves the material/company details on the document. Repeated API submissions with the same request ID do not issue twice.
+
+Drafts can be modified or cancelled. Posted documents cannot be edited: cancellation requires a reason and reverses the quantities with a new movement. An inbound receipt cannot be reversed if insufficient stock remains. Document versions reject stale edits. Existing requirement-linked issues no longer require Fabrication approval, but retain quantity, stock, completed-job and explicitly requested TC checks.
+
+The Store inventory page displays opening, inbound, total stock, consumed/issued, and available quantities **per material**. Totals reconcile stock movements, including reversals. Consumed/issued includes job issues and sales as well as independent Store issues. Quantities currently use whole stock units.
+
+Challan fields include recipient/supplier and address, order reference/date, vehicle, transporter, LR/IR references and dates, HSN, units, line remarks, declared values, CGST/SGST or IGST, and general remarks. Print / Save PDF produces a delivery record; it does not post a financial invoice or generate a government e-way bill. Enter an externally generated 12-digit e-way bill number before or after posting. Cancelling a Store record does not cancel an official e-way bill. Official generation requires the [e-way bill portal or its authorised API](https://docs.ewaybillgst.gov.in/html/faq_new.html).
+
+Verification: `python -m unittest test_store -v` and `python test_browser.py browser-store.cjs`. All test documents use a disposable local database. The new MongoDB `store_documents` collection must be provisioned via `MongoStore.prepare()` before hosting a new release. `.env`, real business records, backups and uploaded documents remain excluded from GitHub and deployment uploads.
