@@ -92,6 +92,7 @@ def create_invoice(c,d):
         if not isinstance(item,dict):raise ValueError('Each invoice item must be an object')
         p=c.one('products',{'id':identifier(item.get('product_id'))})
         if not p:raise ValueError('Select an existing product')
+        import store_catalog;store_catalog.require_ready(p)
         try:
             quantity=Decimal(str(item.get('quantity')))
             if not quantity.is_finite() or quantity!=int(quantity) or quantity<=0 or quantity>10000000:raise ValueError()

@@ -5,7 +5,7 @@ from storage import identifier
 
 ROLES=('Admin','Design','Machining','Fabrication','Store','Accounts')
 PERMISSIONS={
-    'contra':('Accounts',), 'financial-notes':('Accounts',), 'bank-reconcile':('Accounts',), 'accounts':('Accounts',), 'settlements':('Accounts',), 'journals':('Accounts',),
+    'catalog-confirm':('Store',), 'contra':('Accounts',), 'financial-notes':('Accounts',), 'bank-reconcile':('Accounts',), 'accounts':('Accounts',), 'settlements':('Accounts',), 'journals':('Accounts',),
     'invoices':('Accounts',), 'orders':('Accounts',), 'pay':('Accounts',),
     'purchases':('Accounts',), 'receive':('Store',), 'products':('Store',), 'stock':('Store',),
     'settings':(), 'jobs':(), 'job-action':(),

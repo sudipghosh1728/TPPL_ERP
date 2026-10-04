@@ -29,6 +29,7 @@ def prepare(c,d):
   if pid in seen:raise ValueError('Choose each material once per voucher')
   seen.add(pid);p=c.one('products',{'id':pid})
   if not p:raise ValueError('Material not found')
+  import store_catalog;store_catalog.require_ready(p)
   qty=quantity(row.get('quantity'),kind=='Physical stock')
   if kind=='Physical stock':
    expected=quantity(row.get('book_quantity'),True)

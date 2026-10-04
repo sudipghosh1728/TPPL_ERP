@@ -29,6 +29,7 @@ def prepare(c,d):
   if pid in seen:raise ValueError('Combine duplicate material lines')
   seen.add(pid);p=c.one('products',{'id':pid})
   if not p:raise ValueError('Material not found')
+  import store_catalog;store_catalog.require_ready(p)
   rate=accounting.cents(row.get('rate',0))
   if rate<0:raise ValueError('Rate cannot be negative')
   lines.append(dict(product_id=pid,description=p['name'],sku=p['sku'],unit=p.get('unit','pcs'),quantity=qty,rate=rate,amount=rate*qty,hsn=text(row,'hsn',limit=8),remarks=text(row,'remarks')))

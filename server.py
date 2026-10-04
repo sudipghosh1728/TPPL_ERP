@@ -12,7 +12,7 @@ from pymongo.errors import DuplicateKeyError,PyMongoError
 
 import access,accounting,manufacturing,seed,finance_ops
 import company as company_config
-import store_ops
+import store_ops,store_catalog
 
 from storage import MongoStore,identifier
 
@@ -66,7 +66,9 @@ def product(c,d):
 
     pid=identifier(d.get('product_id'))
 
-    if not c.one('products',{'id':pid}):raise ValueError('Product not found')
+    p=c.one('products',{'id':pid})
+    if not p:raise ValueError('Product not found')
+    store_catalog.require_ready(p)
 
     return pid
 
@@ -115,6 +117,7 @@ def read_api(c,path,cookie):
         data['templates']=company_config.TEMPLATES if user['role']=='Admin' else {}
 
         data['store_documents']=c.all('store_documents',sort=[('id',-1)]) if role in ('Admin','Store') else []
+        data['store_invoices']=store_catalog.invoice_register(c) if role in ('Admin','Store') else []
         data['database']={'engine':'MongoDB','name':STORE.database}
 
         return data
@@ -205,6 +208,7 @@ def write_api(c,path,d,cookie,ip):
     elif path.startswith('/api/work/') and path.split('/')[-1] in work:work[path.split('/')[-1]](c,d,user)
 
     elif path=='/api/store-documents':store_ops.save(c,d,user)
+    elif path=='/api/catalog-confirm':store_catalog.confirm(c,d,user)
     elif path=='/api/accounts':accounting.create_account(c,d);log(c,'Account created: '+d['name'])
 
     elif path=='/api/settlements':accounting.settle(c,d);log(c,'Payment voucher recorded: '+d['reference'])

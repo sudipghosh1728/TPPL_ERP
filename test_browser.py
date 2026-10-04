@@ -6,6 +6,9 @@ from mongo_test_support import test_store,clean
 def main():
     with tempfile.TemporaryDirectory() as temp:
         server.STORE=test_store();server.initialize(migrate_local=False,demo=os.environ.get("ERP_TEST_CLEAN")!="1")
+        if os.environ.get('ERP_TEST_CATALOG')=='1':
+            import store_catalog
+            server.STORE.run(lambda c:store_catalog.import_names(c,[dict(row=1,name='Test imported wheel',source_values=['10','15'])],'browser-fixture',True))
         http=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler)
         threading.Thread(target=http.serve_forever,daemon=True).start()
         try:

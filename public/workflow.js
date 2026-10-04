@@ -1,5 +1,5 @@
 let sessionUser=null,setupRequired=false,selectedJob=null,workFilter='All';
-const rolePages={Admin:['dashboard','stockreports','store','jobs','requirements','users','sales','accounts','ledgers','financials','vouchers','inventory','purchases','reports','integrations','settings'],Accounts:['sales','accounts','ledgers','financials','vouchers','purchases','reports','integrations'],Store:['inventory','stockreports','store','requirements','jobs','purchases'],Design:['jobs'],Machining:['jobs'],Fabrication:['jobs']};
+const rolePages={Admin:['dashboard','stockreports','dailystore','storesearch','store','jobs','requirements','users','sales','accounts','ledgers','financials','vouchers','inventory','purchases','reports','integrations','settings'],Accounts:['sales','accounts','ledgers','financials','vouchers','purchases','reports','integrations'],Store:['inventory','stockreports','dailystore','storesearch','store','requirements','jobs','purchases'],Design:['jobs'],Machining:['jobs'],Fabrication:['jobs']};
 const jobRef=j=>'JOB-'+String(j.id).padStart(4,'0');
 const workJob=id=>state.work_jobs.find(j=>j.id===Number(id));
 const canRole=role=>sessionUser.role==='Admin'||sessionUser.role===role;

@@ -39,3 +39,4 @@ jobs:
           node --check public/store.js
           node --check public/stock-workbench.js
           node --check public/financial-reports.js
+          node --check public/store-daily.js

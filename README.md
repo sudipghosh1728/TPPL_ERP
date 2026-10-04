@@ -168,3 +168,14 @@ Accounts includes Contra transfers between cash/bank ledgers, credit/debit allow
 This is not yet full TallyPrime parity. Multiple warehouse balances/transfers for the same SKU, batches/expiry tracking, fractional stock units, automated inventory costing/COGS, GST filing, government e-invoice/e-way-bill generation, bank feeds and complete Tally data migration remain separate work. Do not describe these as supported based on the voucher screens.
 
 Additional checks: `python -m unittest discover -v` and `python test_browser.py browser-vouchers.cjs`. All tests use disposable local MongoDB databases; they do not post test vouchers to the company database.
+
+
+### Daily Store sheet, search and private catalogue import
+
+Store and Admin have **Daily in / out** (`#dailystore`) and **Search Store** (`#storesearch`). The daily sheet supports date/warehouse filters, material search, only-active rows and CSV export. It reconciles opening + inward - outward + count adjustments = closing, with a separate available-now column. Consumption/production journals contribute to inward/outward; physical-count differences stay under adjustments. Returns and cancellation reversals remain visible. Quantities in different units are never added into a misleading grand total.
+
+Store search covers materials, Store vouchers and their supplier invoice/challan references, plus read-only sales invoices and received supplier bills. The Store invoice projection deliberately excludes bank details, settlements and account ledgers. Accounts retains financial posting permissions.
+
+`store_catalog.py <private-json-path>` previews material-name imports; `--apply` imports them. Input rows contain `row`, `name` and optional `source_values`. Existing exact names or import SKUs are retained without changing stock. New names have unconfirmed quantities and units, and cannot be received/issued/invoiced until Store or Admin confirms a stock unit, opening quantity and date. A confirmation writes one dated opening movement. Repeat imports do not create duplicates. Keep source documents, extracted JSON and backups under ignored `data/` or `test-results/`, never under `public/` or in commits. Incomplete or ambiguous historical sheets must not be treated as current verified balances.
+
+Browser verification: set `ERP_TEST_CATALOG=1`, then run `python test_browser.py browser-store-daily.cjs` against the disposable test replica set.
