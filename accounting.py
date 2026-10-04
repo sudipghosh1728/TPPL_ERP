@@ -1,5 +1,6 @@
 """Double-entry books persisted in MongoDB; posting amounts are integer paise."""
 import datetime
+import finance_ops
 from decimal import Decimal,InvalidOperation,ROUND_HALF_UP
 from storage import identifier
 
@@ -122,11 +123,11 @@ def settle(c,d):
     if oid:
         doc=c.one('orders',{'id':oid,'account_id':a['id']})
         if not doc or a['type']!='Customer':raise ValueError('Invoice does not belong to this customer')
-        remaining=cents(doc['total'])-sum(s['amount'] for s in c.all('settlements',{'order_id':oid}))
+        remaining=cents(doc['total'])-finance_ops.note_total(c,'note_order_id',oid)-sum(s['amount'] for s in c.all('settlements',{'order_id':oid}))
     elif pid:
         doc=c.one('purchases',{'id':pid,'account_id':a['id'],'status':'Received'})
         if not doc or a['type']!='Supplier':raise ValueError('Select a received supplier bill')
-        remaining=cents(doc['unit_cost'])*doc['quantity']-sum(s['amount'] for s in c.all('settlements',{'purchase_id':pid}))
+        remaining=cents(doc['unit_cost'])*doc['quantity']-finance_ops.note_total(c,'note_purchase_id',pid)-sum(s['amount'] for s in c.all('settlements',{'purchase_id':pid}))
     else:
         doc=None;opening_doc=c.one('journals',{'source':f'opening:{a["id"]}'})
         opening=sum(l['debit']-l['credit'] for l in c.all('journal_lines',{'account_id':a['id'],'journal_id':opening_doc['id']})) if opening_doc else 0
@@ -156,6 +157,6 @@ def state(c,data):
         lines=[l for l in data['journal_lines'] if l['account_id']==a['id']]
         a['debit']=sum(l['debit'] for l in lines);a['credit']=sum(l['credit'] for l in lines);a['balance']=a['debit']-a['credit']
     for o in data['orders']:
-        o['total_paise']=cents(o['total']);o['paid_paise']=sum(s['amount'] for s in data['settlements'] if s['order_id']==o['id']);o['outstanding_paise']=o['total_paise']-o['paid_paise']
+        o['total_paise']=cents(o['total']);o['paid_paise']=sum(s['amount'] for s in data['settlements'] if s['order_id']==o['id']);o['credited_paise']=sum(j.get('note_amount',0) for j in data['journals'] if j.get('note_order_id')==o['id']);o['outstanding_paise']=o['total_paise']-o['paid_paise']-o['credited_paise']
     for p in data['purchases']:
-        p['total_paise']=cents(p['unit_cost'])*p['quantity'];p['paid_paise']=sum(s['amount'] for s in data['settlements'] if s['purchase_id']==p['id']);p['outstanding_paise']=p['total_paise']-p['paid_paise'] if p['status']=='Received' else 0
+        p['total_paise']=cents(p['unit_cost'])*p['quantity'];p['paid_paise']=sum(s['amount'] for s in data['settlements'] if s['purchase_id']==p['id']);p['credited_paise']=sum(j.get('note_amount',0) for j in data['journals'] if j.get('note_purchase_id')==p['id']);p['outstanding_paise']=p['total_paise']-p['paid_paise']-p['credited_paise'] if p['status']=='Received' else 0

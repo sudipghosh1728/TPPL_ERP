@@ -5,7 +5,7 @@ from storage import identifier
 
 ROLES=('Admin','Design','Machining','Fabrication','Store','Accounts')
 PERMISSIONS={
-    'accounts':('Accounts',), 'settlements':('Accounts',), 'journals':('Accounts',),
+    'contra':('Accounts',), 'financial-notes':('Accounts',), 'bank-reconcile':('Accounts',), 'accounts':('Accounts',), 'settlements':('Accounts',), 'journals':('Accounts',),
     'invoices':('Accounts',), 'orders':('Accounts',), 'pay':('Accounts',),
     'purchases':('Accounts',), 'receive':('Store',), 'products':('Store',), 'stock':('Store',),
     'settings':(), 'jobs':(), 'job-action':(),
@@ -94,7 +94,7 @@ def filter_state(c,data,user):
         for p in data['products']:p.pop('price',None)
         if role=='Store':
             for p in data['purchases']:
-                for key in ('unit_cost','account_id','total_paise','paid_paise','outstanding_paise'):p.pop(key,None)
+                for key in ('unit_cost','account_id','total_paise','paid_paise','outstanding_paise','credited_paise'):p.pop(key,None)
         else:data['purchases']=[]
     if role not in ('Admin',):data['jobs']=[]
     if role not in ('Admin','Store'):data['movements']=[]

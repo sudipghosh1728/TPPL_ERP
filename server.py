@@ -10,7 +10,7 @@ from urllib.parse import urlparse,quote
 
 from pymongo.errors import DuplicateKeyError,PyMongoError
 
-import access,accounting,manufacturing,seed
+import access,accounting,manufacturing,seed,finance_ops
 import company as company_config
 import store_ops
 
@@ -209,6 +209,9 @@ def write_api(c,path,d,cookie,ip):
 
     elif path=='/api/settlements':accounting.settle(c,d);log(c,'Payment voucher recorded: '+d['reference'])
 
+    elif path=='/api/contra':finance_ops.contra(c,d);log(c,'Contra voucher recorded: '+d['reference'])
+    elif path=='/api/financial-notes':finance_ops.note(c,d);log(c,'Financial note recorded: '+d['reference'])
+    elif path=='/api/bank-reconcile':finance_ops.reconcile(c,d);log(c,'Bank clearance updated by '+user['name'])
     elif path=='/api/journals':accounting.manual_journal(c,d);log(c,'Journal voucher recorded: '+d['reference'])
 
     elif path in ('/api/invoices','/api/orders'):

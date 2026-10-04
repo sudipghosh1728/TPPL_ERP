@@ -14,7 +14,7 @@ const assert=require('node:assert/strict');
  s=await state();assert.equal(s.products.find(x=>x.id===p.id).stock,initial+7);assert.equal(s.work_jobs.length,0);
  await page.locator(`[data-store=view][data-id="${draft.id}"]`).click();await page.getByText('DELIVERY CHALLAN',{exact:true}).waitFor();assert(await page.getByText('MH46BU4158',{exact:false}).isVisible());await page.pdf({path:'test-results/store-challan.pdf',format:'A4'});
  await page.locator('[data-store=eway]').click();await page.locator('#store-action [name=eway_number]').fill('123456789012');await page.locator('#store-action button').click();await page.waitForFunction(()=>!document.querySelector('#modal').open);
- await page.locator('nav a[href="#inventory"]').click();await page.getByText('CONSUMED / ISSUED',{exact:true}).waitFor();await page.reload();await page.getByText('CONSUMED / ISSUED',{exact:true}).waitFor();
+ await page.locator('nav a[href="#inventory"]').click();await page.getByText('OUTBOUND',{exact:true}).waitFor();await page.reload();await page.getByText('OUTBOUND',{exact:true}).waitFor();
  await page.setViewportSize({width:390,height:844});await page.locator('[data-store=issue]').click();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:'test-results/store-mobile.png',fullPage:true});assert.deepEqual(errors,[]);
  console.log('PASS: Store-only inbound, draft edit, direct issue, stock totals, challan PDF, e-way reference, reload and mobile.');
 }finally{await browser.close()}})().catch(e=>{console.error(e);process.exitCode=1});

@@ -37,3 +37,5 @@ jobs:
 
           node --check public/company.js
           node --check public/store.js
+          node --check public/stock-workbench.js
+          node --check public/financial-reports.js

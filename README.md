@@ -155,3 +155,16 @@ The Store inventory page displays opening, inbound, total stock, consumed/issued
 Challan fields include recipient/supplier and address, order reference/date, vehicle, transporter, LR/IR references and dates, HSN, units, line remarks, declared values, CGST/SGST or IGST, and general remarks. Print / Save PDF produces a delivery record; it does not post a financial invoice or generate a government e-way bill. Enter an externally generated 12-digit e-way bill number before or after posting. Cancelling a Store record does not cancel an official e-way bill. Official generation requires the [e-way bill portal or its authorised API](https://docs.ewaybillgst.gov.in/html/faq_new.html).
 
 Verification: `python -m unittest test_store -v` and `python test_browser.py browser-store.cjs`. All test documents use a disposable local database. The new MongoDB `store_documents` collection must be provisioned via `MongoStore.prepare()` before hosting a new release. `.env`, real business records, backups and uploaded documents remain excluded from GitHub and deployment uploads.
+
+
+### Store and Accounts workspaces
+
+Store now includes linked returns inward/outward, physical stock counts (including zero), and consumption/production stock journals. Drafts do not change stock; posting and reversals are atomic. A count must still match the book quantity captured when it was entered. Returns cannot exceed the original voucher's unreturned quantity; linked returns must be cancelled before cancelling the original voucher.
+
+Click a material in Inventory for its master details and dated stock history. The stock balance table shows outbound and last movement date. Inbound is net of supplier returns; outbound is net issues/sales after returns inward; counts and production journals appear under adjustments. Materials without movements show no movement date. Stock reports provide running quantity balances, date filters, reorder alerts and CSV exports.
+
+Accounts includes Contra transfers between cash/bank ledgers, credit/debit allowances against unpaid invoices/received bills, manual bank clearance, and P&L, balance sheet, trial balance, day book and outstanding reports with CSV export. Financial notes do not move stock; physical returns are separate Store documents. Notes cannot exceed unpaid balances. Paid-document refunds and statutory GST credit/debit notes are not implemented. P&L uses posted income and expenses; purchases are expensed and closing-stock valuation is not automatic. The balance sheet is based on posted ledgers only. Outstanding is a current-position report, while the balance sheet and trial balance use the end date.
+
+This is not yet full TallyPrime parity. Multiple warehouse balances/transfers for the same SKU, batches/expiry tracking, fractional stock units, automated inventory costing/COGS, GST filing, government e-invoice/e-way-bill generation, bank feeds and complete Tally data migration remain separate work. Do not describe these as supported based on the voucher screens.
+
+Additional checks: `python -m unittest discover -v` and `python test_browser.py browser-vouchers.cjs`. All tests use disposable local MongoDB databases; they do not post test vouchers to the company database.

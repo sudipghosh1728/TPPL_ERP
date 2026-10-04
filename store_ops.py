@@ -1,7 +1,7 @@
 """Independent Store receipts, issues and delivery challans. All writes are transactional."""
 import datetime,re
 from decimal import Decimal,ROUND_HALF_UP
-import access,accounting
+import access,accounting,inventory_vouchers as vouchers
 from storage import identifier
 
 def text(d,key,required=False,limit=500):
@@ -13,7 +13,8 @@ def now():return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 def prepare(c,d):
  kind=d.get('kind')
- if kind not in ('Inbound','Issue'):raise ValueError('Choose Inbound or Issue')
+ if kind in vouchers.SPECIAL:return vouchers.prepare(c,d)
+ if kind not in vouchers.PREFIX:raise ValueError('Choose a supported voucher type')
  result=dict(kind=kind,date=accounting.date(d.get('date')),party=text(d,'party',True),address=text(d,'address'),reference=text(d,'reference'),order_number=text(d,'order_number'),vehicle=text(d,'vehicle'),transporter=text(d,'transporter'),lr_number=text(d,'lr_number'),ir_number=text(d,'ir_number'),remarks=text(d,'remarks'),eway_number=text(d,'eway_number'),dispatch_address=text(d,'dispatch_address'),party_gstin=text(d,'party_gstin'),company_gstin=text(d,'company_gstin'))
  if result['date']>datetime.date.today().isoformat():raise ValueError('Document date cannot be in the future')
  if result['eway_number'] and not re.fullmatch(r'\d{12}',result['eway_number']):raise ValueError('Enter the 12-digit e-way bill number generated on the government portal')
@@ -31,6 +32,10 @@ def prepare(c,d):
   rate=accounting.cents(row.get('rate',0))
   if rate<0:raise ValueError('Rate cannot be negative')
   lines.append(dict(product_id=pid,description=p['name'],sku=p['sku'],unit=p.get('unit','pcs'),quantity=qty,rate=rate,amount=rate*qty,hsn=text(row,'hsn',limit=8),remarks=text(row,'remarks')))
+ if kind in vouchers.RETURN_KINDS:
+  source=c.one('store_documents',{'id':identifier(d.get('source_id'))})
+  if not source or source['kind']!=vouchers.RETURN_KINDS[kind]:raise ValueError('Choose the original voucher')
+  result['source_id']=source['id'];result['source_number']=source['number']
  result['items']=lines;result['assessable']=sum(x['amount'] for x in lines)
  for key in ('cgst','sgst','igst'):
   value=accounting.cents(d.get(key,0))
@@ -43,9 +48,11 @@ def prepare(c,d):
  return result
 
 def movement(c,doc,user,reverse=False):
- sign=1 if doc['kind']=='Inbound' else -1
+ if doc['kind'] in vouchers.SPECIAL:return vouchers.move_special(c,doc,user,reverse)
+ if doc['kind'] in vouchers.RETURN_KINDS and not reverse:vouchers.validate_return(c,doc)
+ sign=1 if doc['kind'] in ('Inbound','Return in') else -1
  if reverse:sign=-sign
- kind=('store_receipt' if doc['kind']=='Inbound' else 'store_issue')+('_reversal' if reverse else '')
+ kind={'Inbound':'store_receipt','Issue':'store_issue','Return in':'return_in','Return out':'return_out'}[doc['kind']]+('_reversal' if reverse else '')
  for line in doc['items']:
   qty=sign*line['quantity'];query={'id':line['product_id']}
   if qty<0:query['stock']={'$gte':-qty}
@@ -66,6 +73,8 @@ def save(c,d,user):
  elif action=='cancel':
   if not doc or doc['status']=='Cancelled':raise ValueError('Document is already cancelled or missing')
   reason=text(d,'reason',True)
+  if c.one('store_documents',{'source_id':doc['id'],'status':'Posted'}):raise ValueError('Cancel linked return vouchers before cancelling the original voucher')
+  if doc.get('source_id'):c.touch('store_documents',doc['source_id'])
   if doc['status']=='Posted':movement(c,doc,user,True)
   c.update('store_documents',{'id':doc['id']},{'status':'Cancelled','cancel_reason':reason,'cancelled_by':user['name'],'cancelled_at':now()},inc={'version':1})
  elif action in ('save','post','save_post'):
@@ -76,7 +85,7 @@ def save(c,d,user):
   if doc and values['kind']!=doc['kind']:raise ValueError('Document operation cannot be changed')
   if not doc:
    did=c.insert('store_documents',**values,status='Draft',version=1,created_by=user['name'],created_at=now())
-   number=('GRN' if values['kind']=='Inbound' else 'DC')+'-'+str(did).zfill(6)
+   number=vouchers.PREFIX[values['kind']]+'-'+str(did).zfill(6)
    c.update('store_documents',{'id':did},{'number':number})
    doc=c.one('store_documents',{'id':did})
   elif action in ('save','save_post'):
