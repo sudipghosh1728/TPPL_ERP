@@ -2,7 +2,7 @@ const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch();try{
  const page=await browser.newPage({viewport:{width:1550,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(process.env.ERP_TEST_URL+'/admin');await page.locator('[name=name]').fill('Test Admin');await page.locator('[name=username]').fill('daily-admin');await page.locator('[name=password]').fill('Daily-test-password-123');await page.locator('#login-form button').click();await page.locator('nav a').first().waitFor();
+ await page.goto(process.env.ERP_TEST_URL+'/admin');await page.locator('[name=name]').fill('Test Admin');await page.locator('[name=username]').fill('daily-admin');await page.locator('[name=password]').fill('Daily-test-password-123');await page.locator('#login-form button').click();await page.locator('#nav a').first().waitFor();
  const api=(path,data)=>page.evaluate(async({path,data})=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)throw Error(await r.text());return r.json()},{path,data});
  const snapshot=()=>page.evaluate(async()=>await(await fetch('/api/state')).json());let s=await snapshot();const p=s.products.find(p=>!p.catalog_pending),pending=s.products.find(p=>p.catalog_pending),initial=p.stock;
  await api('users',{username:'daily-store',name:'Daily Store',role:'Store',password:'Daily-test-password-123'});

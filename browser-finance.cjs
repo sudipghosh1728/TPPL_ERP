@@ -11,7 +11,7 @@ const assert=require('node:assert/strict');
   await page.locator('[name=username]').fill('finance-test');
   await page.locator('[name=password]').fill('Browser-test-password-123');
   await page.locator('#login-form [type=submit]').click();
-  await page.locator('nav a').first().waitFor();
+  await page.locator('#nav a').first().waitFor();
   await page.locator('h1').waitFor();
   const nav=async name=>{await page.locator(`nav a[href="#${name}"]`).click();await page.locator('h1').waitFor()};
   const state=()=>page.evaluate(async()=>await (await fetch('/api/state')).json());

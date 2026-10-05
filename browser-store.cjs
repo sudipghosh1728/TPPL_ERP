@@ -2,7 +2,7 @@ const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch();try{
  const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(process.env.ERP_TEST_URL+'/admin');await page.locator('[name=name]').fill('Store Test Admin');await page.locator('[name=username]').fill('store-test-admin');await page.locator('[name=password]').fill('Store-browser-password-123');await page.locator('#login-form button').click();await page.locator('nav a').first().waitFor();
+ await page.goto(process.env.ERP_TEST_URL+'/admin');await page.locator('[name=name]').fill('Store Test Admin');await page.locator('[name=username]').fill('store-test-admin');await page.locator('[name=password]').fill('Store-browser-password-123');await page.locator('#login-form button').click();await page.locator('#nav a').first().waitFor();
  await page.evaluate(async()=>{await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'store-operator',name:'Store Operator',role:'Store',password:'Store-browser-password-123'})});await fetch('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})});
  await page.goto(process.env.ERP_TEST_URL+'/user');await page.locator('[name=username]').fill('store-operator');await page.locator('[name=password]').fill('Store-browser-password-123');await page.locator('#login-form button').click();await page.locator('nav a[href="#inventory"]').waitFor();
  const state=()=>page.evaluate(async()=>await(await fetch('/api/state')).json());let s=await state();const p=s.products[0],initial=p.stock;

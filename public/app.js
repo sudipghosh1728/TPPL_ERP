@@ -10,11 +10,12 @@ const names={store:'Store operations',dashboard:'Overview',sales:'Sales & invoic
 
 const product=id=>state.products.find(e=>e.id===id), badge=s=>`<span class="badge ${['Paid','Present','Approved'].includes(s)?'green':['Pending','Low stock','Absent'].includes(s)?'amber':'gray'}">${esc(s)}</span>`;
 
-async function load(){const r=await fetch('/api/state',{signal:AbortSignal.timeout(25000)});if(r.status===401){sessionUser=null;loginScreen();return}if(!r.ok)throw Error('Cannot load workspace');state=await r.json();sessionUser=state.user;render()}
+function applyWorkspace(data){state=data;sessionUser=state.user;render()}
+async function load(){const r=await fetch('/api/state',{signal:AbortSignal.timeout(25000)});if(r.status===401){sessionUser=null;loginScreen();return}if(!r.ok)throw Error('Cannot load workspace');applyWorkspace(await r.json())}
 
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),3500)}
 
-async function post(path,data){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:crypto.randomUUID(),...data})});const result=await r.json();if(!r.ok)throw Error(result.error);await load();toast('Changes saved successfully')}
+async function post(path,data){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({return_state:true,request_id:crypto.randomUUID(),...data})});const result=await r.json();if(!r.ok)throw Error(result.error);if(result.state)applyWorkspace(result.state);else await load();toast('Changes saved successfully')}
 
 function button(label,action,secondary=false){return `<button class="${secondary?'secondary':'primary'}" data-action="${action}">${label}</button>`}
 
@@ -70,4 +71,4 @@ function csv(filename,headers,rows){const safe=x=>{let s=String(x??'');if(/^[=+@
 
 document.addEventListener('click',async e=>{const el=e.target.closest('button,[data-action]');if(!el)return;try{if(el.hasAttribute('data-close'))$('#modal').close();else if(el.dataset.receive)await post('receive',{id:el.dataset.receive});else if(el.dataset.job)await post('job-action',{id:el.dataset.job});else if(el.dataset.pay)paymentForm(el.dataset.pay);else if(el.id==='activity-button')modal('Workspace activity',`<div class="activity-list">${state.activity.map(a=>`<p>${esc(a.message)}<small>${esc(a.date.replace('T',' · '))}</small></p>`).join('')}</div>`);else if(el.dataset.action==='settings')location.hash='settings';else if(el.dataset.action==='export')csv('grey-one-sales.csv',['Invoice','Customer','Date','Due date','Amount INR','Paid INR','Outstanding INR','Status'],state.orders.map(o=>[invoiceName(o),o.customer,o.date,o.due,o.total_paise/100,o.paid_paise/100,o.outstanding_paise/100,o.status]));else if(el.dataset.action)openForm(el.dataset.action)}catch(err){toast(err.message)}});
 
-window.addEventListener('hashchange',()=>{page=location.hash.slice(1);search='';render()});boot();
+window.addEventListener('hashchange',()=>{if(document.body.classList.contains('signed-out'))return;page=location.hash.slice(1);search='';render()});boot();

@@ -4,7 +4,7 @@ from pymongo.errors import CollectionInvalid
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 from pymongo.read_preferences import ReadPreference
-import config
+import config,json,copy
 
 COLLECTIONS=('products','orders','movements','activity','settings','purchases','jobs','accounts','journals',
              'journal_lines','invoice_items','settlements','requests','users','sessions','login_attempts',
@@ -34,14 +34,22 @@ def public(doc):
     return {k:v for k,v in doc.items() if k not in ('_id','name_key','username_key','_revision')}
 
 class UnitOfWork:
-    def __init__(self,db,session):self.db=db;self.session=session
+    def __init__(self,db,session):self.db=db;self.session=session;self._reads={}
+    def cached(self,key,read):
+        # Only the lifetime of this transaction; never share company data between requests.
+        key=json.dumps(key,sort_keys=True,default=str)
+        if key not in self._reads:self._reads[key]=read()
+        return copy.deepcopy(self._reads[key])
     def one(self,collection,query=None):
-        return public(self.db[collection].find_one(query or {},session=self.session))
+        return self.cached(('one',collection,query),lambda:public(self.db[collection].find_one(query or {},session=self.session)))
     def all(self,collection,query=None,sort=None,projection=None):
-        cursor=self.db[collection].find(query or {},projection,session=self.session)
-        if sort:cursor=cursor.sort(sort)
-        return [public(r) for r in cursor]
+        def read():
+            cursor=self.db[collection].find(query or {},projection,session=self.session)
+            if sort:cursor=cursor.sort(sort)
+            return [public(r) for r in cursor]
+        return self.cached(('all',collection,query,sort,projection),read)
     def insert(self,collection,**values):
+        self._reads.clear()
         doc={**DEFAULTS.get(collection,{}),**values}
         if collection in KEYS:
             doc['_id']=doc[KEYS[collection]]
@@ -57,6 +65,7 @@ class UnitOfWork:
         self.db[collection].insert_one(doc,session=self.session)
         return doc.get('id',doc['_id'])
     def update(self,collection,query,values=None,inc=None,upsert=False):
+        self._reads.clear()
         change={}
         if values:change['$set']=dict(values)
         if inc:change['$inc']=dict(inc)
@@ -65,6 +74,7 @@ class UnitOfWork:
         result=self.db[collection].update_many(query,change,upsert=upsert,session=self.session)
         return result.matched_count or int(result.upserted_id is not None)
     def delete(self,collection,query):
+        self._reads.clear()
         return self.db[collection].delete_many(query,session=self.session).deleted_count
     def touch(self,collection,record_id):
         # Force a write conflict when concurrent payments read the same balance.
@@ -86,6 +96,8 @@ class MongoStore:
                 except CollectionInvalid:pass
         for collection,field in [('products','sku'),('accounts','name_key'),('users','username_key'),('settings','key'),('requests','token'),('sessions','token_hash'),('login_attempts','key')]:
             self.db[collection].create_index(field,unique=True)
+        for collection in COLLECTIONS:
+            if collection not in KEYS:self.db[collection].create_index('id',unique=True)
         self.db.products.create_index('barcode',unique=True,partialFilterExpression={'barcode':{'$gt':''}})
         self.db.journals.create_index('source',unique=True,partialFilterExpression={'source':{'$type':'string'}})
         for collection,field in [('journal_lines','account_id'),('journal_lines','journal_id'),('invoice_items','order_id'),('settlements','order_id'),('settlements','purchase_id'),('settlements','account_id'),('sessions','user_id'),('requirements','job_id'),('job_documents','job_id'),('work_history','job_id'),('material_issues','requirement_id')]:

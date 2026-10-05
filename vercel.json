@@ -21,5 +21,8 @@
       "source": "/user",
       "destination": "/index.html"
     }
+  ],
+  "regions": [
+    "bom1"
   ]
 }

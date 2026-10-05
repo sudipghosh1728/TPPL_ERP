@@ -7,15 +7,15 @@ const assert=require('node:assert/strict');
   const fill=(p,name,value)=>p.locator(`[name="${name}"]`).fill(value);
   const save=async p=>{await p.locator('dialog [type=submit]').click();await p.locator('dialog[open]').waitFor({state:'hidden'})};
   const nav=async(p,name)=>{await p.locator(`nav a[href="#${name}"]`).click();await p.locator('h1').waitFor()};
-  const login=async role=>{const p=await pageFor(role);await fill(p,'username',role.toLowerCase());await fill(p,'password',password);await p.locator('#login-form button').click();await p.locator('nav a').first().waitFor();return p};
+  const login=async role=>{const p=await pageFor(role);await fill(p,'username',role.toLowerCase());await fill(p,'password',password);await p.locator('#login-form button').click();await p.locator('#nav a').first().waitFor();return p};
   const read=p=>p.evaluate(async()=>await (await fetch('/api/state')).json());
-  const refresh=async p=>{await p.reload();await p.locator('nav a').first().waitFor()};
+  const refresh=async p=>{await p.reload();await p.locator('#nav a').first().waitFor()};
   const open=async(p,id)=>{const back=p.locator('[data-work=back]');if(await back.count())await back.click();await p.locator(`[data-work=open][data-id="${id}"]`).first().click();await p.locator('.job-route').waitFor()};
   const doc={name:'approved-document.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\nTest manufacturing document')};
   const attachment=async(p,kind)=>{await p.locator('[data-work=attachment]').click();await p.locator('[name=kind]').selectOption(kind);await p.locator('[name=document_file]').setInputFiles(doc);await save(p)};
   const requirement=async(p,qty,tc)=>{await p.locator('[data-work=requirement]').filter({hasText:'Add requirement'}).click();await p.locator('[name=product_id]').selectOption('1');await fill(p,'quantity',String(qty));if(tc)await p.locator('[name=tc_required]').check();await fill(p,'notes','Plate for test base frame');await save(p)};
   const transition=async(p,action,machining)=>{await p.locator(`[data-action-name="${action}"]`).click();if(action==='design_approve')await p.locator('[name=machining_required]').selectOption(machining?'yes':'no');await fill(p,'notes','Reviewed and approved by department');await save(p)};
-  const admin=await pageFor('Admin');await fill(admin,'name','Workflow Admin');await fill(admin,'username','admin');await fill(admin,'password',password);await admin.locator('#login-form button').click();await admin.locator('nav a').first().waitFor();
+  const admin=await pageFor('Admin');await fill(admin,'name','Workflow Admin');await fill(admin,'username','admin');await fill(admin,'password',password);await admin.locator('#login-form button').click();await admin.locator('#nav a').first().waitFor();
   await nav(admin,'users');
   for(const role of ['Design','Machining','Fabrication','Store','Accounts']){await admin.locator('[data-work=user]').filter({hasText:'Create user'}).click();await fill(admin,'name',role+' Team');await fill(admin,'username',role.toLowerCase());await fill(admin,'password',password);await admin.locator('[name=role]').selectOption(role);await save(admin)}
   await nav(admin,'jobs');

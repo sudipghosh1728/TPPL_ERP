@@ -1,6 +1,6 @@
 """VECTORone HTTP application using native MongoDB transactions."""
 
-import datetime,hashlib,html,json,pathlib
+import datetime,hashlib,html,json,pathlib,time
 
 from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
 
@@ -78,7 +78,10 @@ def read_api(c,path,cookie):
 
     user=access.current(c,cookie)
 
-    if path=='/api/auth/session':return {'user':user,'setup_required':False if user else not bool(c.one('users'))}
+    if path in ('/api/auth/session','/api/bootstrap'):
+        result={'user':user,'setup_required':False if user else not bool(c.one('users'))}
+        if user and path=='/api/bootstrap':result['state']=read_api(c,'/api/state',cookie)
+        return result
 
     if not user:raise access.AccessError('Please sign in to continue',401)
 
@@ -110,6 +113,7 @@ def read_api(c,path,cookie):
         if role in ('Admin','Accounts'):accounting.state(c,data)
         manufacturing.state(c,data,user)
         workspace=data['settings'].get('workspace')
+        data['store_invoices']=store_catalog.invoice_register(c,data if role=='Admin' else {k:data[k] for k in ('products','purchases')}) if role in ('Admin','Store') else []
         access.filter_state(c,data,user)
 
         data['workspace']=workspace or company_config.get(c)
@@ -117,7 +121,6 @@ def read_api(c,path,cookie):
         data['templates']=company_config.TEMPLATES if user['role']=='Admin' else {}
 
         data['store_documents']=c.all('store_documents',sort=[('id',-1)]) if role in ('Admin','Store') else []
-        data['store_invoices']=store_catalog.invoice_register(c) if role in ('Admin','Store') else []
         data['database']={'engine':'MongoDB','name':STORE.database}
 
         return data
@@ -301,6 +304,12 @@ def write_api(c,path,d,cookie,ip):
     return {'ok':True}
 
 
+def write_response(c,path,d,cookie,ip):
+    result=write_api(c,path,d,cookie,ip)
+    if d.get('return_state') is True and result.get('_status',200)==200 and not path.startswith('/api/auth/'):
+        result['state']=read_api(c,'/api/state',cookie)
+    return result
+
 
 class Handler(SimpleHTTPRequestHandler):
 
@@ -312,6 +321,7 @@ class Handler(SimpleHTTPRequestHandler):
 
         self.send_response(status);self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(payload)));self.send_header('Cache-Control','no-store')
 
+        if hasattr(self,'api_elapsed'):self.send_header('Server-Timing',f'app;dur={self.api_elapsed:.1f}')
         if cookie:self.send_header('Set-Cookie',cookie)
 
         self.end_headers();self.wfile.write(payload)
@@ -341,7 +351,9 @@ class Handler(SimpleHTTPRequestHandler):
 
         try:
 
+            started=time.perf_counter()
             result=STORE.run(lambda c:read_api(c,path,self.headers.get('Cookie')))
+            self.api_elapsed=(time.perf_counter()-started)*1000
 
             if '_download' in result:
 
@@ -371,7 +383,9 @@ class Handler(SimpleHTTPRequestHandler):
 
             if not isinstance(d,dict):raise ValueError('Expected a JSON object')
 
-            result=STORE.run(lambda c:write_api(c,urlparse(self.path).path,d,self.headers.get('Cookie'),self.client_address[0]))
+            started=time.perf_counter()
+            result=STORE.run(lambda c:write_response(c,urlparse(self.path).path,d,self.headers.get('Cookie'),self.client_address[0]))
+            self.api_elapsed=(time.perf_counter()-started)*1000
 
             cookie=result.pop('_cookie',None);status=result.pop('_status',200)
 

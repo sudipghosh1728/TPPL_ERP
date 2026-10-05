@@ -179,3 +179,14 @@ Store search covers materials, Store vouchers and their supplier invoice/challan
 `store_catalog.py <private-json-path>` previews material-name imports; `--apply` imports them. Input rows contain `row`, `name` and optional `source_values`. Existing exact names or import SKUs are retained without changing stock. New names have unconfirmed quantities and units, and cannot be received/issued/invoiced until Store or Admin confirms a stock unit, opening quantity and date. A confirmation writes one dated opening movement. Repeat imports do not create duplicates. Keep source documents, extracted JSON and backups under ignored `data/` or `test-results/`, never under `public/` or in commits. Incomplete or ambiguous historical sheets must not be treated as current verified balances.
 
 Browser verification: set `ERP_TEST_CATALOG=1`, then run `python test_browser.py browser-store-daily.cjs` against the disposable test replica set.
+
+
+### Portal navigation and response times
+
+Use `/admin` for Admin accounts and `/user` for department accounts. Both sign-in screens and the signed-in sidebar show portal tabs with an active label. Opening the other portal while signed in offers **Return to your portal** or **Sign out & open the other portal**. Switching clears the prior workspace and requires the correct account; it never changes a user's permissions. Tabs remain visible on mobile, and the desktop module list scrolls independently.
+
+Workspace startup uses one authenticated `/api/bootstrap` request. Successful non-authentication writes can return the refreshed role-filtered state in the same committed transaction, removing the following state-fetch request. Repeated identical reads are reused only within that transaction, copied before use, and invalidated by writes. There is no shared cache of company records or optimistic success before commit. Unique record-ID indexes support lookups. Provision indexes with `MongoStore.prepare()` before deploying.
+
+Vercel functions run in Mumbai (`bom1`), near the current Atlas cluster. Update the region if moving the database. `Server-Timing` exposes application duration for API diagnostics. In an isolated hosted fixture with 76 materials, three samples each of Store/Admin/Accounts loads and Store inbound/issue/Accounts contra saves took 110–428 ms; login samples took 413–862 ms. Measurements include HTTP response time, exclude page asset downloads, and are not a guarantee for cold starts, uploads, larger records or slower networks. No test vouchers were posted to the company database.
+
+Checks: `python -m unittest discover -v`, `python test_browser.py browser-portals.cjs`, and `python test_browser.py browser-vouchers.cjs`. These cover permissions, transaction freshness, idempotency, explicit portal switching, mobile layout, a single startup request and one request per tested save.

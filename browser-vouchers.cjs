@@ -2,13 +2,13 @@ const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch();try{
  const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(process.env.ERP_TEST_URL+'/admin');await page.locator('[name=name]').fill('Voucher Admin');await page.locator('[name=username]').fill('voucher-admin');await page.locator('[name=password]').fill('Voucher-test-password-123');await page.locator('#login-form button').click();await page.locator('nav a').first().waitFor();
+ await page.goto(process.env.ERP_TEST_URL+'/admin');await page.locator('[name=name]').fill('Voucher Admin');await page.locator('[name=username]').fill('voucher-admin');await page.locator('[name=password]').fill('Voucher-test-password-123');await page.locator('#login-form button').click();await page.locator('#nav a').first().waitFor();
  const state=()=>page.evaluate(async()=>await(await fetch('/api/state')).json());
  async function api(path,data){return page.evaluate(async({path,data})=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)throw Error(await r.text());return r.json()},{path,data})}
  await api('users',{username:'voucher-store',name:'Store',role:'Store',password:'Voucher-test-password-123'});
  await api('users',{username:'voucher-accounts',name:'Accounts',role:'Accounts',password:'Voucher-test-password-123'});
- async function login(username){await api('auth/logout',{});await page.goto(process.env.ERP_TEST_URL+'/user');await page.locator('[name=username]').fill(username);await page.locator('[name=password]').fill('Voucher-test-password-123');await page.locator('#login-form button').click();await page.locator('nav a').first().waitFor()}
- async function submit(selector){await page.locator(selector).click();await page.waitForFunction(()=>!document.querySelector('#modal').open)}
+ async function login(username){await api('auth/logout',{});await page.goto(process.env.ERP_TEST_URL+'/user');await page.locator('[name=username]').fill(username);await page.locator('[name=password]').fill('Voucher-test-password-123');await page.locator('#login-form button').click();await page.locator('#nav a').first().waitFor()}
+ async function submit(selector){const requests=[];const capture=r=>{if(r.url().includes('/api/'))requests.push(r.method()+' '+new URL(r.url()).pathname)};page.on('request',capture);try{await page.locator(selector).click();await page.waitForFunction(()=>!document.querySelector('#modal').open);assert.equal(requests.length,1,'Saving should need one API call');assert(requests[0].startsWith('POST '))}finally{page.off('request',capture)}}
  await login('voucher-store');let s=await state();const p=s.products[0],q=s.products[1],initial=p.stock;
  await page.locator(`[data-material-detail="${p.id}"]`).click();await page.getByRole('heading',{name:'Material details',exact:true}).waitFor();assert(await page.locator('#modal').getByText(p.sku,{exact:false}).isVisible());await page.locator('#modal [data-close]').first().click();
  await page.getByText('OUTBOUND',{exact:true}).waitFor();await page.getByText('LAST MOVEMENT DATE',{exact:true}).waitFor();

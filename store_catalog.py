@@ -39,13 +39,19 @@ def confirm(c,d,user):
 def require_ready(product):
  if product and product.get('catalog_pending'):raise ValueError('Confirm the stock unit and opening balance for '+product['name']+' in Store first')
 
-def invoice_register(c):
- """Read-only invoice projections; exclude ledgers, settlements and bank details."""
- received_dates={j['source']:j['date'] for j in c.all('journals',{'source':{'$regex':'^purchase:'}},projection={'source':1,'date':1})}
- items=c.all('invoice_items');products={p['id']:p for p in c.all('products')};result=[]
- for o in c.all('orders',sort=[('id',-1)]):
+def invoice_register(c,data=None):
+ """Read-only invoice projections; reuse collections already loaded in this snapshot."""
+ data=data or {}
+ journals=data['journals'] if 'journals' in data else c.all('journals',{'source':{'$regex':'^purchase:'}},projection={'source':1,'date':1})
+ received_dates={j['source']:j['date'] for j in journals if str(j.get('source') or '').startswith('purchase:')}
+ items=data['invoice_items'] if 'invoice_items' in data else c.all('invoice_items')
+ products={p['id']:p for p in (data['products'] if 'products' in data else c.all('products'))};result=[]
+ orders=data['orders'] if 'orders' in data else c.all('orders',sort=[('id',-1)])
+ for o in orders:
   result.append(dict(key='sale:'+str(o['id']),number=f'INV-{o["id"]:04}',kind='Sales invoice',party=o['customer'],date=o['date'],total=accounting.cents(o['total']),items=[{k:i.get(k) for k in ('product_id','description','quantity','unit_price','amount')} for i in items if i['order_id']==o['id']]))
- for p in c.all('purchases',{'status':'Received'},sort=[('id',-1)]):
+ purchases=data['purchases'] if 'purchases' in data else c.all('purchases',{'status':'Received'},sort=[('id',-1)])
+ for p in purchases:
+  if p['status']!='Received':continue
   price=accounting.cents(p['unit_cost']);amount=price*p['quantity']
   result.append(dict(key='bill:'+str(p['id']),number=f'BILL-{p["id"]:04}',kind='Supplier bill',party=p['supplier'],date=received_dates.get('purchase:'+str(p['id']),p['date']),total=amount,items=[dict(product_id=p['product_id'],description=products.get(p['product_id'],{}).get('name','Material'),quantity=p['quantity'],unit_price=price,amount=amount)]))
  return result
