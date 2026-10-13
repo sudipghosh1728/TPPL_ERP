@@ -24,6 +24,7 @@ def history(c,jid,user,action,notes=''):
     c.insert('work_history',job_id=jid,actor_id=user['id'],actor_name=user['name'],department=user['role'],action=action,notes=str(notes)[:4000],created_at=now())
 def visible(job,user):
     role=user['role']
+    if job.get('flow_version')==2:return True
     if role in ('Admin','Design','Fabrication','Store'):return True
     if role=='Machining':return job['machining_required']==1 and job['stage'] not in ('Design review','Admin revision')
     return False
@@ -36,7 +37,7 @@ def version(job,d):
 def bump(c,jid):c.update('work_jobs',{'id':jid},inc={'version':1})
 
 def upload(c,jid,user,kind,file):
-    if kind not in ('PO','Drawing','TC','Supporting'):raise ValueError('Invalid document type')
+    if kind not in ('PO','Revised PO','Drawing','Material requirement','TC','Supporting','EWAY challan'):raise ValueError('Invalid document type')
     if not isinstance(file,dict):raise ValueError('Choose a document to upload')
     name=str(file.get('name','')).replace('\\','/').split('/')[-1][:180]
     extensions={'.pdf','.png','.jpg','.jpeg','.txt','.dwg','.dxf','.step','.stp','.xlsx','.docx','.csv'}
@@ -155,8 +156,8 @@ def issue(c,d,user):
 
 def state(c,data,user):
     for key in ('work_jobs','requirements','job_documents','work_history','material_issues'):data[key]=[]
-    if user['role']=='Accounts':return
     query={} if user['role'] in ('Admin','Design','Fabrication','Store') else {'machining_required':1,'stage':{'$nin':['Design review','Admin revision']}} if user['role']=='Machining' else {'id':-1}
+    query={'$or':[query,{'flow_version':2}]}
     jobs=c.all('work_jobs',query,sort=[('id',-1)])
     ids={j['id'] for j in jobs};data['work_jobs']=jobs
     if not ids:return

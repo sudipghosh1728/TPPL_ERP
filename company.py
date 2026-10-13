@@ -34,7 +34,7 @@ def save(c,d):
  return value
 
 def guard(c,path):
- if (path.startswith('/api/work/') or path.startswith('/api/documents/') or path in ('/api/jobs','/api/job-action')) and not get(c)['manufacturing']:
+ if (path.startswith('/api/projects/') or path.startswith('/api/work/') or path.startswith('/api/documents/') or path in ('/api/jobs','/api/job-action')) and not get(c)['manufacturing']:
   raise access.AccessError('Manufacturing is disabled for this company',403)
 
 def product_details(c,d):
@@ -49,4 +49,4 @@ def product_details(c,d):
  attrs=d.get('attributes',{})
  if not isinstance(attrs,dict) or any(k not in cfg['fields'] for k in attrs):raise ValueError('Unknown product field')
  attrs={k:text(v,k) for k,v in attrs.items() if v!=''}
- return dict(unit=unit,barcode=barcode,attributes=attrs)
+ return dict(unit=unit,barcode=barcode,attributes=attrs)

@@ -8,7 +8,7 @@ import config,json,copy
 
 COLLECTIONS=('products','orders','movements','activity','settings','purchases','jobs','accounts','journals',
              'journal_lines','invoice_items','settlements','requests','users','sessions','login_attempts',
-             'work_jobs','job_documents','requirements','work_history','material_issues','store_documents')
+             'work_jobs','job_documents','requirements','work_history','material_issues','store_documents','project_requests','project_messages','inspection_calls','project_notifications','maintenance_tickets','dispatch_outbox','dispatch_archives')
 KEYS={'settings':'key','requests':'token','sessions':'token_hash','login_attempts':'key'}
 DEFAULTS={
  'accounts':dict(email='',phone='',address='',system=0),
@@ -98,6 +98,11 @@ class MongoStore:
             self.db[collection].create_index(field,unique=True)
         for collection in COLLECTIONS:
             if collection not in KEYS:self.db[collection].create_index('id',unique=True)
+        for name in ('project_requests','project_messages','inspection_calls','project_notifications','dispatch_outbox'):
+            self.db[name].create_index('job_id')
+        self.db.dispatch_archives.create_index([('outbox_id',1),('chunk',1)],unique=True)
+        self.db.work_jobs.create_index('plant_id')
+        self.db.maintenance_tickets.create_index('plant_id')
         self.db.products.create_index('barcode',unique=True,partialFilterExpression={'barcode':{'$gt':''}})
         self.db.journals.create_index('source',unique=True,partialFilterExpression={'source':{'$type':'string'}})
         for collection,field in [('journal_lines','account_id'),('journal_lines','journal_id'),('invoice_items','order_id'),('settlements','order_id'),('settlements','purchase_id'),('settlements','account_id'),('sessions','user_id'),('requirements','job_id'),('job_documents','job_id'),('work_history','job_id'),('material_issues','requirement_id')]:

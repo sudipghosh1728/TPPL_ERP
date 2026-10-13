@@ -3,7 +3,7 @@ import hashlib, hmac, secrets, time
 from http.cookies import SimpleCookie
 from storage import identifier
 
-ROLES=('Admin','Design','Machining','Fabrication','Store','Accounts')
+ROLES=('Admin','Design','Machining','Fabrication','Store','Accounts','QC','Maintenance')
 PERMISSIONS={
     'catalog-confirm':('Store',), 'contra':('Accounts',), 'financial-notes':('Accounts',), 'bank-reconcile':('Accounts',), 'accounts':('Accounts',), 'settlements':('Accounts',), 'journals':('Accounts',),
     'invoices':('Accounts',), 'orders':('Accounts',), 'pay':('Accounts',),

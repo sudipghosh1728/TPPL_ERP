@@ -14,3 +14,15 @@ browser-*.cjs
 local_preview.py
 mongo_test_support.py
 .git
+
+# Build the pinned corporate source; exclude private and generated files.
+TPPL/.git
+TPPL/.vercel
+TPPL/.env*
+TPPL/node_modules
+TPPL/dist
+TPPL/review
+TPPL/data
+public/website
+web-dist
+start-local-preview.ps1

@@ -190,3 +190,6 @@ Workspace startup uses one authenticated `/api/bootstrap` request. Successful no
 Vercel functions run in Mumbai (`bom1`), near the current Atlas cluster. Update the region if moving the database. `Server-Timing` exposes application duration for API diagnostics. In an isolated hosted fixture with 76 materials, three samples each of Store/Admin/Accounts loads and Store inbound/issue/Accounts contra saves took 110–428 ms; login samples took 413–862 ms. Measurements include HTTP response time, exclude page asset downloads, and are not a guarantee for cold starts, uploads, larger records or slower networks. No test vouchers were posted to the company database.
 
 Checks: `python -m unittest discover -v`, `python test_browser.py browser-portals.cjs`, and `python test_browser.py browser-vouchers.cjs`. These cover permissions, transaction freshness, idempotency, explicit portal switching, mobile layout, a single startup request and one request per tested save.
+
+
+Local-only plant/QC preview: see [LOCAL_PREVIEW.md](LOCAL_PREVIEW.md) for startup, sample accounts, workflow rules and email setup.

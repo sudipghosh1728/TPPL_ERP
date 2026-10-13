@@ -12,7 +12,7 @@ from pymongo.errors import DuplicateKeyError,PyMongoError
 
 import access,accounting,manufacturing,seed,finance_ops
 import company as company_config
-import store_ops,store_catalog
+import store_ops,store_catalog,project_flow
 
 from storage import MongoStore,identifier
 
@@ -87,6 +87,14 @@ def read_api(c,path,cookie):
 
     company_config.guard(c,path)
 
+    if path=='/api/projects/notifications':
+        return {'notifications':c.all('project_notifications',{} if user['role']=='Admin' else {'roles':user['role']},sort=[('id',-1)])[:200]}
+    if path.startswith('/api/projects/archive/'):
+        return project_flow.archive(c,path.rsplit('/',1)[-1],user)
+    if path.startswith('/api/projects/chat/'):
+        j=project_flow.project(c,{'job_id':path.rsplit('/',1)[-1]},user)
+        return {'messages':c.all('project_messages',{'job_id':j['id']},sort=[('id',1)])}
+
     if path.startswith('/api/documents/'):
 
         doc=c.one('job_documents',{'id':identifier(path.rsplit('/',1)[-1])})
@@ -112,6 +120,7 @@ def read_api(c,path,cookie):
 
         if role in ('Admin','Accounts'):accounting.state(c,data)
         manufacturing.state(c,data,user)
+        project_flow.state(c,data,user)
         workspace=data['settings'].get('workspace')
         data['store_invoices']=store_catalog.invoice_register(c,data if role=='Admin' else {k:data[k] for k in ('products','purchases')}) if role in ('Admin','Store') else []
         access.filter_state(c,data,user)
@@ -188,6 +197,7 @@ def write_api(c,path,d,cookie,ip):
     if path=='/api/users':access.require(user)
 
     elif path=='/api/store-documents':access.require(user,('Store',))
+    elif path.startswith('/api/projects/'):access.require(user,access.ROLES)
     elif path.startswith('/api/work/'):access.require(user,('Design','Machining','Fabrication','Store'))
 
     else:access.require(user,access.PERMISSIONS.get(path.removeprefix('/api/'),()))
@@ -208,7 +218,14 @@ def write_api(c,path,d,cookie,ip):
 
     if path=='/api/users':access.manage_user(c,d,user);log(c,'User access updated by '+user['name'])
 
-    elif path.startswith('/api/work/') and path.split('/')[-1] in work:work[path.split('/')[-1]](c,d,user)
+    elif path.startswith('/api/projects/') and path.split('/')[-1] in project_flow.HANDLERS:project_flow.HANDLERS[path.split('/')[-1]](c,d,user)
+    elif path.startswith('/api/work/') and path.split('/')[-1] in work:
+        jid=d.get('job_id')
+        if path.endswith('/issue'):
+            req=c.one('requirements',{'id':identifier(d.get('requirement_id'))})
+            jid=req['job_id'] if req else None
+        if jid and (c.one('work_jobs',{'id':identifier(jid)}) or {}).get('flow_version')==2:raise ValueError('Use the QC-controlled project workflow for this job')
+        work[path.split('/')[-1]](c,d,user)
 
     elif path=='/api/store-documents':store_ops.save(c,d,user)
     elif path=='/api/catalog-confirm':store_catalog.confirm(c,d,user)
@@ -347,7 +364,12 @@ class Handler(SimpleHTTPRequestHandler):
         if path.rstrip('/') in ('/admin','/user'):
             self.path='/index.html'
             return super().do_GET()
-        if not path.startswith('/api/'):return super().do_GET()
+        if not path.startswith('/api/'):
+            website=(ROOT/'public'/'website').resolve()
+            candidate=(website/path.lstrip('/')).resolve()
+            if path=='/' and (website/'index.html').is_file():self.path='/website/index.html'
+            elif candidate.is_relative_to(website) and candidate.is_file():self.path='/website'+path
+            return super().do_GET()
 
         try:
 
