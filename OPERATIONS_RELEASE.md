@@ -19,6 +19,16 @@ Tax rates and HSN codes require Accounts review. This release does not cover exe
 
 Invoice-field references: [CBIC Rule 46](https://taxinformation.cbic.gov.in/content-page/explore-rules/1000136/1000001) and [CBIC Rule 55](https://taxinformation.cbic.gov.in/content-page/explore-rules/1000146/1000001).
 
+## Admin project deletion
+
+Open a project as Admin and choose **Delete project**. Download the complete ZIP, confirm that the file is saved, and type the project reference. The ZIP contains original documents, structured JSON, readable HTML and CSV reports, approvals, inspection reports, chat, material issues, stock movement references and previous dispatch archives. This works for active, completed and earlier-workflow projects.
+
+The server binds each export to its Admin and project. Downloads are chunked and checked with SHA-256. All chunks must be retrieved before deletion; exports expire after one hour. Changes to the project or related records require a new ZIP. Cancellation leaves the project intact.
+
+Deletion atomically removes project documents, requirements, issue details, approvals, inspection calls, chat, notifications/read receipts, queued dispatch archives and temporary exports. Other projects and shared customer, product, stock movement and accounting records remain unchanged; issued stock is not returned. A minimal company activity receipt records the deletion and archive fingerprint. Deletion is blocked while an archive email is actively being sent. No live project is deleted by deployment or by the automated tests.
+
+Test the flow with `python -m unittest test_project_deletion -v` and `python test_browser.py browser-project-delete.cjs`.
+
 ## Verification
 
 `python -m unittest discover -v` uses isolated local test databases. Browser checks: `python test_browser.py browser-hr.cjs`, `python test_browser.py browser-operations.cjs`, and `python test_browser.py browser-projects.cjs`. `python build_production.py` builds the combined corporate site and ERP with versioned assets. Private `.env`, local test data and logs are excluded from Git and deployment uploads.

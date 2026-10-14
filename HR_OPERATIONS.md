@@ -1,6 +1,10 @@
 # HR, attendance and project responsibility
 
-Admin creates accounts in **Users & departments**, including QC, Maintenance and HR. Employees sign in through `/user`; Admin uses `/admin`. The workspace asks each employee to complete their name, phone, email, blood group, birth date, assigned department and PNG/JPEG photo. Marital status, address and emergency contact are optional. Only Admin changes account departments. Employee personal details and pay records are restricted to the employee, HR and Admin; Design receives a planning directory with names, departments and extended-leave availability.
+Admin creates accounts in **Users & departments**, including QC, Maintenance and HR. Employees sign in through `/user`; Admin uses `/admin`. The workspace asks each employee to complete their name, phone, email, blood group, birth date, plant, assigned department and PNG/JPEG photo. Marital status, address and emergency contact are optional. Only Admin changes account departments. Employee personal details and pay records are restricted to the employee, HR and Admin; Design receives a planning directory with names, departments and extended-leave availability.
+
+The plant selector lists Talawade, Solu, Chakan and Khandala. Existing profiles without a valid plant are prompted to complete it; no plant is guessed. HR/Admin can filter the employee directory by plant, including **Plant not selected**, and edit a record to correct its plant. Design receives the plant in its planning directory.
+
+The sidebar uses the employee photo in a circle. Updating a photo replaces the `photo` value in the same employee profile record; previous photo versions are not retained by the application. Database backup retention is separate from the current record. The database-status card is removed for all roles.
 
 ## Project assignments
 

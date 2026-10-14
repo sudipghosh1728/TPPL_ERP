@@ -1,5 +1,6 @@
 """VECTORone HTTP application using native MongoDB transactions."""
 
+import project_deletion
 import datetime,hashlib,html,json,pathlib,time
 
 from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
@@ -94,6 +95,10 @@ def read_api(c,path,cookie):
 
     if path=='/api/projects/notifications':
         return {'notifications':c.all('project_notifications',{} if user['role']=='Admin' else {'roles':user['role']},sort=[('id',-1)])[:200],'dispatch_alerts':hr_ops.alerts(c,c.all('work_jobs'),user)}
+    if path.startswith('/api/projects/delete-export/'):
+        parts=path.removeprefix('/api/projects/delete-export/').split('/')
+        if len(parts)!=2:raise ValueError('Invalid project archive link')
+        return project_deletion.download_part(c,parts[0],parts[1],user)
     if path.startswith('/api/projects/archive/'):
         return project_flow.archive(c,path.rsplit('/',1)[-1],user)
     if path.startswith('/api/projects/chat/'):
@@ -220,6 +225,9 @@ def write_api(c,path,d,cookie,ip):
         if c.one('requests',{'token':token}):return {'ok':True,'duplicate':True}
 
         c.insert('requests',token=token)
+
+    if path=='/api/projects/delete-export':return project_deletion.prepare(c,d,user)
+    if path=='/api/projects/delete':return project_deletion.delete(c,d,user)
 
     work={'create':manufacturing.create,'attach':manufacturing.attach,'requirement':manufacturing.requirement,'transition':manufacturing.transition,'issue':manufacturing.issue}
 

@@ -19,10 +19,12 @@ def person(c,uid):
     if not u: raise ValueError('Choose an active employee')
     return u
 def profile(c,d,user):
+    import project_flow
     uid=identifier(d.get('user_id',user['id']))
     if uid!=user['id']: hr(user)
     u=person(c,uid); old=c.one('employee_profiles',{'user_id':uid}) or {}
     values={k:text(d,k) for k in ('name','phone','email','blood_group','dob')}
+    values['plant_id']=project_flow.plant(d.get('plant_id'))
     if not re.fullmatch(r'\+?[0-9 ()-]{7,20}',values['phone']): raise ValueError('Enter a valid phone number')
     if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',values['email']): raise ValueError('Enter a valid email address')
     if values['blood_group'] not in ('A+','A-','B+','B-','AB+','AB-','O+','O-'): raise ValueError('Choose blood group')
@@ -195,10 +197,16 @@ def payroll(c,d,user):
     audit(c,user,'Payroll draft created: '+str(uid)+' '+month)
 
 def state(c,data,user):
+    import project_flow
     admin=user['role'] in ('Admin','HR');uid=user['id'];q={} if admin else {'user_id':uid}
     data['employee_profile']=c.one('employee_profiles',{'user_id':uid})
     data['hr_profiles']=c.all('employee_profiles',projection={'photo':0}) if admin else []
-    data['employee_directory']=[dict(id=u['id'],name=u['name'],department=u['role'],active=u['active'],on_extended_leave=unavailable(c,u['id'])) for u in c.all('users',{'active':1})] if user['role'] in ('Admin','HR','Design') else []
+    plant_ids={p['id'] for p in project_flow.PLANTS}
+    for profile in [data['employee_profile'],*data['hr_profiles']]:
+        if profile:profile['complete']=bool(profile.get('complete') and profile.get('plant_id') in plant_ids)
+    directory_allowed=user['role'] in ('Admin','HR','Design')
+    profile_plants={p['user_id']:p.get('plant_id','') for p in c.all('employee_profiles',projection={'user_id':1,'plant_id':1})} if directory_allowed else {}
+    data['employee_directory']=[dict(id=u['id'],name=u['name'],department=u['role'],plant_id=profile_plants.get(u['id'],'') if profile_plants.get(u['id']) in plant_ids else '',active=u['active'],on_extended_leave=unavailable(c,u['id'])) for u in c.all('users',{'active':1})] if directory_allowed else []
     ids={uid for j in data.get('work_jobs',[]) for uid in j.get('assignments',{}).values()}
     data['project_assignees']={str(u['id']):u['name'] for u in c.all('users',{'id':{'$in':list(ids)}})}
     for name in ('employee_leave','employee_attendance','attendance_requests','salary_structures','payroll_runs'):

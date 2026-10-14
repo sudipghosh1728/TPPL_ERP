@@ -14,17 +14,33 @@ class HRTests(unittest.TestCase):
  def tearDown(self):self.clock.stop();clean(self.store)
  def call(self,who,endpoint,**d):return self.store.run(lambda c:h.HANDLERS[endpoint](c,d,self.users[who]))
  def rows(self,name):return self.store.run(lambda c:c.all(name))
- def profile(self,who):self.call(who,'profile',name=who,phone='9999999999',email=who.lower()+'@example.invalid',blood_group='O+',dob='1990-01-01',photo=PHOTO,department=self.users[who]['role'])
+ def profile(self,who):self.call(who,'profile',name=who,phone='9999999999',email=who.lower()+'@example.invalid',blood_group='O+',dob='1990-01-01',photo=PHOTO,plant_id='solu',department=self.users[who]['role'])
  def test_profile_validation_privacy_and_role_control(self):
   with self.assertRaises(ValueError):self.call('QC1','profile',name='QC1')
   self.profile('QC1');self.profile('QC2')
   with self.assertRaises(access.AccessError):self.call('QC1','profile',user_id=self.users['QC2']['id'])
-  with self.assertRaises(ValueError):self.call('QC1','profile',name='QC1',phone='9999999999',email='ok@example.invalid',blood_group='O+',dob='1990-01-01',photo=PHOTO,department='Admin')
+  with self.assertRaises(ValueError):self.call('QC1','profile',name='QC1',phone='9999999999',email='ok@example.invalid',blood_group='O+',dob='1990-01-01',photo=PHOTO,plant_id='solu',department='Admin')
   def view(c,who):
    data={'work_jobs':[]};h.state(c,data,self.users[who]);return data
   own=self.store.run(lambda c:view(c,'QC1'));design=self.store.run(lambda c:view(c,'Design'));admin=self.store.run(lambda c:view(c,'Admin'))
   self.assertEqual(own['employee_profile']['name'],'QC1');self.assertEqual(own['hr_profiles'],[])
   self.assertEqual(design['hr_profiles'],[]);self.assertNotIn('email',design['employee_directory'][0]);self.assertEqual(len(admin['hr_profiles']),2)
+ def test_required_plant_photo_replacement_and_existing_profile_completion(self):
+  payload=dict(name='QC1',phone='9999999999',email='qc@example.invalid',blood_group='O+',dob='1990-01-01',photo=PHOTO)
+  for missing in (None,'','not-a-plant'):
+   with self.assertRaises(ValueError):self.call('QC1','profile',**payload,plant_id=missing)
+  self.call('QC1','profile',**payload,plant_id='solu');first=self.rows('employee_profiles')[0]
+  replacement='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVQIHWP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC'
+  self.call('QC1','profile',**{**payload,'photo':replacement},plant_id='chakan')
+  profiles=self.rows('employee_profiles');self.assertEqual(len(profiles),1);self.assertEqual(profiles[0]['id'],first['id']);self.assertEqual(profiles[0]['photo'],replacement);self.assertNotIn(PHOTO,str(self.rows('hr_audit')))
+  def view(c,user):
+   result={'work_jobs':[]};h.state(c,result,user);return result
+  state=self.store.run(lambda c:view(c,self.users['HR']));employee=next(e for e in state['employee_directory'] if e['id']==self.users['QC1']['id']);self.assertEqual(employee['plant_id'],'chakan');self.assertNotIn('photo',state['hr_profiles'][0])
+  self.store.run(lambda c:c.update('employee_profiles',{'id':first['id']},{'plant_id':''}))
+  state=self.store.run(lambda c:view(c,self.users['QC1']));self.assertFalse(state['employee_profile']['complete']);self.assertEqual(state['employee_profile']['photo'],replacement)
+  # Adding the missing plant keeps the existing photo without a second upload.
+  self.call('QC1','profile',**{k:v for k,v in payload.items() if k!='photo'},plant_id='khandala')
+  self.assertEqual(self.rows('employee_profiles')[0]['photo'],replacement)
  def test_leave_assignment_coverage_and_return(self):
   uid=self.users['QC1']['id'];self.call('QC1','leave',start='2026-10-13',end='2026-10-19',reason='Personal')
   rid=self.rows('employee_leave')[0]['id'];self.call('HR','leave',id=rid,action='Approved',paid=True,notes='Approved')
