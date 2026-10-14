@@ -11,7 +11,7 @@ python local_preview.py --port 8001
 
 Open http://localhost:8001/ for the corporate site, `/login.html` for the portal chooser, `/admin` for Admin or `/user` for departments. This uses only the local `grey_plants_preview` database. The preview never starts the email worker and does not change Atlas records.
 
-Local demo usernames: `preview-admin`, `preview-design`, `preview-fabrication`, `preview-machining`, `preview-qc`, `preview-store`, `preview-accounts`, `preview-maintenance`. Password for these local demo accounts: `LocalPreview!2026`. The hosted application never creates these accounts.
+Local demo usernames: `preview-admin`, `preview-design`, `preview-fabrication`, `preview-machining`, `preview-qc`, `preview-store`, `preview-accounts`, `preview-maintenance`, `preview-hr`. Password for these local demo accounts: `LocalPreview!2026`. The hosted application never creates these accounts.
 
 ## Plants and projects
 
@@ -40,3 +40,5 @@ The supplied `TPPL/` folder retains its own repository and is pinned as a Git su
 For production, `python build_production.py` builds the corporate website and ERP into `web-dist/` without reading the database or copying environment files. Vercel serves `/` as the corporate homepage, `/login.html` as the portal chooser, and `/admin` and `/user` as the existing ERP. Configure `MONGODB_URI` and `MONGODB_DATABASE` privately in Vercel. The hosted API uses the existing Atlas records and never runs the local preview seed. Before a workflow upgrade, run `MongoStore.prepare()` against the intended database to provision collections and indexes without creating demo data.
 
 Run `python -m unittest discover -v` and `python test_browser.py browser-projects.cjs` against the disposable local replica set. Tests cover all plants and routes, permissions, duplicate saves, revisions, QC approval, calls/rework, chat isolation/escaping, archive snapshots, Maintenance, plant filters and mobile layouts. Email tests use a fake transport.
+
+Employee profiles, HR, attendance and payroll configuration are described in [HR_OPERATIONS.md](HR_OPERATIONS.md). Preview users also complete their profile on first sign-in. Use invented test details in the isolated preview.

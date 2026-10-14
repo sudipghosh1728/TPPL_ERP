@@ -33,8 +33,21 @@ def note(c,d):
  if amount>remaining:raise ValueError('Note exceeds the unpaid document balance. Paid-document refunds are not supported yet.')
  offset=books.system(c,'Sales revenue' if sales else 'Material purchases')
  lines=[(offset,amount,0),(doc['account_id'],0,amount)] if sales else [(doc['account_id'],amount,0),(offset,0,amount)]
+ tax_reversal={}
+ if sales and doc.get('document_mode')=='gst_dispatch':
+  from decimal import Decimal,ROUND_HALF_UP
+  import gst
+  previous=note_total(c,key,doc['id']);tax_lines=[]
+  for field,label in [('cgst_paise','Output CGST'),('sgst_paise','Output SGST'),('igst_paise','Output IGST')]:
+   tax=doc.get(field,0)
+   def share(value):return int((Decimal(tax)*value/total).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
+   already=sum(j.get('tax_reversal',{}).get(field,0) for j in c.all('journals',{key:doc['id']}))
+   reversal=min(amount-sum(x[1] for x in tax_lines),max(0,share(previous+amount)-already))
+   tax_reversal[field]=reversal
+   if reversal:tax_lines.append((gst.ledger(c,label),reversal,0))
+  lines=[(offset,amount-sum(x[1] for x in tax_lines),0),*tax_lines,(doc['account_id'],0,amount)]
  jid=books.journal(c,day,books.text(d,'reference'),books.text(d,'description'),lines)
- c.update('journals',{'id':jid},{'voucher_type':kind,key:doc['id'],'note_amount':amount})
+ c.update('journals',{'id':jid},{'voucher_type':kind,key:doc['id'],'note_amount':amount,'tax_reversal':tax_reversal})
  if sales:c.update('orders',{'id':doc['id']},{'status':'Settled' if remaining==amount else 'Part paid' if paid else 'Pending'})
 
 

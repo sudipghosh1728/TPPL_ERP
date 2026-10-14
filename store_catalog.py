@@ -48,7 +48,8 @@ def invoice_register(c,data=None):
  products={p['id']:p for p in (data['products'] if 'products' in data else c.all('products'))};result=[]
  orders=data['orders'] if 'orders' in data else c.all('orders',sort=[('id',-1)])
  for o in orders:
-  result.append(dict(key='sale:'+str(o['id']),number=f'INV-{o["id"]:04}',kind='Sales invoice',party=o['customer'],date=o['date'],total=accounting.cents(o['total']),items=[{k:i.get(k) for k in ('product_id','description','quantity','unit_price','amount')} for i in items if i['order_id']==o['id']]))
+  result.append(dict(key='sale:'+str(o['id']),number=f'INV-{o["id"]:04}',kind='Sales invoice',party=o['customer'],date=o['date'],total=accounting.cents(o['total']),items=[{k:i.get(k) for k in ('product_id','description','quantity','unit_price','amount','unit','hsn','gst_rate','cgst_paise','sgst_paise','igst_paise')} for i in items if i['order_id']==o['id']]))
+  result[-1].update({k:o[k] for k in ('document_mode','supplier_gstin','customer_gstin','place_of_supply','supply_type','company_name','company_address','customer_address','delivery_address','taxable_paise','cgst_paise','sgst_paise','igst_paise','notes') if k in o})
  purchases=data['purchases'] if 'purchases' in data else c.all('purchases',{'status':'Received'},sort=[('id',-1)])
  for p in purchases:
   if p['status']!='Received':continue

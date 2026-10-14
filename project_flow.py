@@ -1,13 +1,13 @@
 """Plant projects, QC gates, inspection calls, maintenance and project archives."""
 import datetime, io, json, zipfile
-import access, manufacturing as m, store_catalog
+import access, manufacturing as m, store_catalog, hr_ops
 from storage import identifier
 
 PLANTS=[dict(id='talawade',name='Unit I · Talawade, Pune',area='40,000 sq. ft.',capabilities='Profile cutting, bending and machining',cranes='Up to 20 tonnes'),dict(id='solu',name='Unit II · Solu, Alandi',area='160,000 sq. ft.',capabilities='Machining, welding, painting and shot blasting',cranes='Up to 40 tonnes'),dict(id='chakan',name='Unit III · Chakan, Wasuli',area='46,000 sq. ft.',capabilities='Machining and fabrication',cranes='10 tonnes'),dict(id='khandala',name='Unit IV · Khandala, Satara',area='70,000 sq. ft.',capabilities='Heavy machining, bending and laser cutting',cranes='Up to 32 tonnes')]
-STAGES=['Design review','Admin review','Accounts review','Maintenance review','QC approval','Store issue','Fabrication execution','Machining execution','QC inspection','Packing & dispatch','Completed']
+STAGES=['Design review','Admin review','Accounts review','Maintenance review','HR review','QC approval','Store issue','Fabrication execution','Machining execution','QC inspection','Packing & dispatch','Completed']
 ROUTES={'Fabrication only':False,'Fabrication + machining':True,'Machining only':True}
-TARGETS={'Design':'Design review','Store':'Store issue','Fabrication':'Fabrication execution','Machining':'Machining execution','QC':'QC inspection','Admin':'Admin review','Accounts':'Accounts review','Maintenance':'Maintenance review'}
-REQUEST_TARGETS={'Accounts':('Design','QC','Admin'),'Maintenance':('Design','QC','Admin'),'Design':tuple(access.ROLES),'Machining':('Design','Fabrication','QC','Admin','Store'),'Fabrication':('Design','Machining','QC','Admin'),'QC':('Design','Fabrication','Machining','Store','Admin'),'Store':('Design','QC','Admin')}
+TARGETS={'Design':'Design review','Store':'Store issue','Fabrication':'Fabrication execution','Machining':'Machining execution','QC':'QC inspection','Admin':'Admin review','Accounts':'Accounts review','Maintenance':'Maintenance review','HR':'HR review'}
+REQUEST_TARGETS={'HR':('Design','QC','Admin'),'Accounts':('Design','QC','Admin'),'Maintenance':('Design','QC','Admin'),'Design':tuple(access.ROLES),'Machining':('Design','Fabrication','QC','Admin','Store'),'Fabrication':('Design','Machining','QC','Admin'),'QC':('Design','Fabrication','Machining','Store','Admin'),'Store':('Design','QC','Admin')}
 
 def plant(value):
  if value not in {p['id'] for p in PLANTS}:raise ValueError('Choose a plant')
@@ -39,7 +39,7 @@ def pending(c,j):return c.one('project_requests',{'job_id':j['id'],'status':'Pen
 
 def request(c,d,user):
  j=project(c,d,user);m.version(j,d);open_job(j)
- access.require(user,('Design','Machining','Fabrication','QC','Store','Accounts','Maintenance'))
+ access.require(user,('Design','Machining','Fabrication','QC','Store','Accounts','Maintenance','HR'))
  target=d.get('target')
  if target not in (access.ROLES if user['role']=='Admin' else REQUEST_TARGETS.get(user['role'],())):raise ValueError('Choose an allowed destination department')
  if pending(c,j):raise ValueError('QC must decide the current request first')
@@ -58,6 +58,7 @@ def submit(c,d,user):
 
 def decide(c,d,user):
  access.require(user,('QC',));j=project(c,d,user);m.version(j,d)
+ hr_ops.assigned(c,j,user)
  r=c.one('project_requests',{'id':identifier(d.get('request')),'job_id':j['id'],'status':'Pending'})
  if not r:raise ValueError('This request has already been decided')
  decision=d.get('decision')
@@ -120,6 +121,7 @@ def requirement(c,d,user):
 
 def issue(c,d,user):
  access.require(user,('Store',));j=project(c,d,user);m.version(j,d)
+ hr_ops.assigned(c,j,user)
  if j['stage']!='Store issue':raise ValueError('QC must release this project to Store first')
  r=c.one('requirements',{'id':identifier(d.get('requirement_id')),'job_id':j['id']})
  if not r or not r.get('approved') or r.get('material_group') not in ('Raw material','Paint'):raise ValueError('Choose a QC-approved raw material or paint requirement')
@@ -131,6 +133,7 @@ def issue(c,d,user):
 
 def action(c,d,user):
  j=project(c,d,user);m.version(j,d);open_job(j);a=d.get('action');notes=m.text(d,'notes')
+ hr_ops.assigned(c,j,user)
  if a=='store_ready':
   access.require(user,('Store',))
   if j['stage']!='Store issue':raise ValueError('QC must release this project to Store first')
@@ -138,7 +141,7 @@ def action(c,d,user):
   target=j.get('store_next_stage') or ('Machining execution' if j['route']=='Machining only' else 'Fabrication execution')
   c.update('work_jobs',{'id':j['id']},{'stage':target});record(c,j,user,'Store verification complete → '+target,notes);notify(c,j,user,'Store verification complete',('Design','QC','Fabrication','Machining'));return
  if a=='request_done':
-  owner={'Admin review':'Admin','Accounts review':'Accounts','Maintenance review':'Maintenance'}.get(j['stage'])
+  owner={'Admin review':'Admin','Accounts review':'Accounts','Maintenance review':'Maintenance','HR review':'HR'}.get(j['stage'])
   if not owner:raise ValueError('This project has no active support department request')
   access.require(user,(owner,));request(c,{**d,'target':'Design'},user);return
  if a=='progress':
@@ -182,6 +185,7 @@ def action(c,d,user):
 
 def inspection(c,d,user):
  access.require(user,('QC',));j=project(c,d,user);m.version(j,d);open_job(j);a=d.get('action')
+ hr_ops.assigned(c,j,user)
  if a=='call':
   if c.one('inspection_calls',{'job_id':j['id'],'status':{'$in':['Pending Admin','Approved','Rework']}}):raise ValueError('Finish the existing inspection call first')
   c.insert('inspection_calls',job_id=j['id'],status='Pending Admin',notes=m.text(d,'notes'),created_by=user['name'],created_at=m.now())

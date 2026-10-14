@@ -102,15 +102,22 @@ def create_invoice(c,d):
         if price<0:raise ValueError('Price cannot be negative')
         demand[p['id']]=demand.get(p['id'],0)+qty
         if demand[p['id']]>p['stock']:raise ValueError(f'Insufficient stock for {p["name"]}: {p["stock"]} available')
-        prepared.append(dict(product_id=p['id'],description=p['name'],quantity=qty,unit_price=price,amount=qty*price))
+        prepared.append(dict(product_id=p['id'],description=p['name'],unit=p.get('unit','pcs'),quantity=qty,unit_price=price,amount=qty*price))
     amount=sum(i['amount'] for i in prepared)
+    snapshot={};tax_lines=[]
+    if d.get('document_mode')=='gst_dispatch':
+        import gst
+        snapshot=gst.prepare(c,d,prepared)
+        for key,label in [('cgst_paise','Output CGST'),('sgst_paise','Output SGST'),('igst_paise','Output IGST')]:
+            if snapshot[key]:tax_lines.append((gst.ledger(c,label),0,snapshot[key]))
+    base=amount;amount+=sum(row[2] for row in tax_lines)
     if not 0<amount<=10000000000000:raise ValueError('Invoice total is outside the supported range')
-    oid=c.insert('orders',customer=customer,product_id=prepared[0]['product_id'],quantity=sum(i['quantity'] for i in prepared),total=amount/100,status='Pending',date=day,account_id=aid,due=due,notes=str(d.get('notes','')).strip())
+    oid=c.insert('orders',customer=customer,product_id=prepared[0]['product_id'],quantity=sum(i['quantity'] for i in prepared),total=amount/100,status='Pending',date=day,account_id=aid,due=due,notes=str(d.get('notes','')).strip(),**snapshot)
     for item in prepared:c.insert('invoice_items',order_id=oid,**item)
     for pid,qty in demand.items():
         if not c.update('products',{'id':pid,'stock':{'$gte':qty}},inc={'stock':-qty}):raise ValueError('Insufficient stock')
         c.insert('movements',product_id=pid,quantity=-qty,reason=f'Invoice INV-{oid:04} · {customer}',date=day)
-    journal(c,day,f'INV-{oid:04}',f'Sales invoice · {customer}',[(aid,amount,0),(system(c,'Sales revenue'),0,amount)],f'invoice:{oid}')
+    journal(c,day,f'INV-{oid:04}',f'Sales invoice · {customer}',[(aid,amount,0),(system(c,'Sales revenue'),0,base),*tax_lines],f'invoice:{oid}')
     return oid
 
 def settle(c,d):

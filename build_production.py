@@ -3,6 +3,8 @@
 No database access, initialization, demo seeding or private environment copying.
 """
 import pathlib
+import hashlib
+import re
 import shutil
 import subprocess
 
@@ -36,6 +38,12 @@ def build():
     for file in ('index.html', 'login.html', 'erp.html', 'projects.js'):
         if not (OUTPUT / file).is_file():
             raise SystemExit('Missing deployment asset: ' + file)
+    entry=OUTPUT/'erp.html'
+    def version_asset(match):
+        name=match.group(2)
+        digest=hashlib.sha256((OUTPUT/name).read_bytes()).hexdigest()[:12]
+        return match.group(1)+'/'+name+'?v='+digest+'"'
+    entry.write_text(re.sub(r'((?:src|href)=")/([^"?]+\.(?:js|css))"',version_asset,entry.read_text(encoding='utf-8')),encoding='utf-8')
     print('Combined website and ERP built in web-dist. No database records changed.')
 
 if __name__ == '__main__':

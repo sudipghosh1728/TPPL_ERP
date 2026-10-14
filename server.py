@@ -12,7 +12,7 @@ from pymongo.errors import DuplicateKeyError,PyMongoError
 
 import access,accounting,manufacturing,seed,finance_ops
 import company as company_config
-import store_ops,store_catalog,project_flow
+import store_ops,store_catalog,project_flow,hr_ops,stock_corrections
 
 from storage import MongoStore,identifier
 
@@ -87,8 +87,13 @@ def read_api(c,path,cookie):
 
     company_config.guard(c,path)
 
+    if path.startswith('/api/hr/profile/'):
+        uid=identifier(path.rsplit('/',1)[-1])
+        if uid!=user['id']:hr_ops.hr(user)
+        return {'profile':c.one('employee_profiles',{'user_id':uid})}
+
     if path=='/api/projects/notifications':
-        return {'notifications':c.all('project_notifications',{} if user['role']=='Admin' else {'roles':user['role']},sort=[('id',-1)])[:200]}
+        return {'notifications':c.all('project_notifications',{} if user['role']=='Admin' else {'roles':user['role']},sort=[('id',-1)])[:200],'dispatch_alerts':hr_ops.alerts(c,c.all('work_jobs'),user)}
     if path.startswith('/api/projects/archive/'):
         return project_flow.archive(c,path.rsplit('/',1)[-1],user)
     if path.startswith('/api/projects/chat/'):
@@ -124,12 +129,13 @@ def read_api(c,path,cookie):
         workspace=data['settings'].get('workspace')
         data['store_invoices']=store_catalog.invoice_register(c,data if role=='Admin' else {k:data[k] for k in ('products','purchases')}) if role in ('Admin','Store') else []
         access.filter_state(c,data,user)
+        hr_ops.state(c,data,user)
 
         data['workspace']=workspace or company_config.get(c)
 
         data['templates']=company_config.TEMPLATES if user['role']=='Admin' else {}
 
-        data['store_documents']=c.all('store_documents',sort=[('id',-1)]) if role in ('Admin','Store') else []
+        data['store_documents']=c.all('store_documents',{} if role in ('Admin','Store') else {'operation':'Inhouse'},sort=[('id',-1)]) if role in ('Admin','Store','Accounts') else []
         data['database']={'engine':'MongoDB','name':STORE.database}
 
         return data
@@ -198,6 +204,7 @@ def write_api(c,path,d,cookie,ip):
 
     elif path=='/api/store-documents':access.require(user,('Store',))
     elif path.startswith('/api/projects/'):access.require(user,access.ROLES)
+    elif path.startswith('/api/hr/'):access.require(user,access.ROLES)
     elif path.startswith('/api/work/'):access.require(user,('Design','Machining','Fabrication','Store'))
 
     else:access.require(user,access.PERMISSIONS.get(path.removeprefix('/api/'),()))
@@ -218,6 +225,7 @@ def write_api(c,path,d,cookie,ip):
 
     if path=='/api/users':access.manage_user(c,d,user);log(c,'User access updated by '+user['name'])
 
+    elif path.startswith('/api/hr/') and path.split('/')[-1] in hr_ops.HANDLERS:hr_ops.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/projects/') and path.split('/')[-1] in project_flow.HANDLERS:project_flow.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/work/') and path.split('/')[-1] in work:
         jid=d.get('job_id')
@@ -228,6 +236,7 @@ def write_api(c,path,d,cookie,ip):
         work[path.split('/')[-1]](c,d,user)
 
     elif path=='/api/store-documents':store_ops.save(c,d,user)
+    elif path=='/api/stock-correction':stock_corrections.save(c,d,user)
     elif path=='/api/catalog-confirm':store_catalog.confirm(c,d,user)
     elif path=='/api/accounts':accounting.create_account(c,d);log(c,'Account created: '+d['name'])
 
@@ -239,8 +248,11 @@ def write_api(c,path,d,cookie,ip):
     elif path=='/api/journals':accounting.manual_journal(c,d);log(c,'Journal voucher recorded: '+d['reference'])
 
     elif path in ('/api/invoices','/api/orders'):
-
-        oid=accounting.create_invoice(c,d);log(c,f'Sales invoice INV-{oid:04} posted to ledger')
+        if d.get('document_mode')=='inhouse':
+            store_ops.save(c,{**d,'kind':'Issue','operation':'Inhouse','action':'save_post','party':required(d,'internal_recipient'),'items':[{'product_id':i.get('product_id'),'quantity':i.get('quantity'),'rate':i.get('unit_price',0),'hsn':i.get('hsn','')} for i in d.get('items',[])]},user)
+            log(c,'Internal issue recorded without GST or a sales ledger entry')
+        else:
+            oid=accounting.create_invoice(c,d);log(c,f'Sales invoice INV-{oid:04} posted to ledger')
 
     elif path=='/api/purchases':
 

@@ -45,6 +45,11 @@ def prepare(c,d):
   result[key]=int((Decimal(result['assessable'])*value/10000).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
  if result['igst_rate'] and (result['cgst_rate'] or result['sgst_rate']):raise ValueError('Use either IGST or CGST/SGST')
  result['total']=result['assessable']+sum(result[x] for x in ('cgst','sgst','igst'))
+ if d.get('operation')=='Inhouse':
+  if kind!='Issue' or d.get('same_registration') not in (True,'on'):raise ValueError('Confirm this is internal consumption/movement within the same GST registration')
+  if result['company_gstin'] and result['party_gstin'] and result['company_gstin']!=result['party_gstin']:raise ValueError('Different GST registrations require a supply review')
+  if any(result[x+'_rate'] for x in ('cgst','sgst','igst')):raise ValueError('Internal issues cannot include GST')
+  result['operation']='Inhouse'
  result['company']=c.one('settings',{'key':'company'})['value']
  return result
 
@@ -61,7 +66,7 @@ def movement(c,doc,user,reverse=False):
   c.insert('movements',product_id=line['product_id'],quantity=qty,reason=('Reversal ' if reverse else '')+doc['number']+' · '+doc['party'],date=accounting.date() if reverse else doc['date'],kind=kind,store_document_id=doc['id'],actor_id=user['id'])
 
 def save(c,d,user):
- access.require(user,('Store',))
+ access.require(user,('Store','Accounts') if d.get('operation')=='Inhouse' and d.get('kind')=='Issue' and not d.get('id') else ('Store',))
  action=d.get('action','save')
  doc=c.one('store_documents',{'id':identifier(d['id'])}) if d.get('id') else None
  if d.get('id') and not doc:raise ValueError('Store document not found')

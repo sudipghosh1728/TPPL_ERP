@@ -6,7 +6,6 @@ from storage import MongoStore
 
 PASSWORD='LocalPreview!2026'
 def provision(c):
- if c.one('settings',{'key':'plant_preview_seeded'}):return
  users={}
  for role in access.ROLES:
   username='preview-'+role.lower()
@@ -15,6 +14,7 @@ def provision(c):
    uid=access.create_user(c,dict(username=username,name=role+' Preview',role=role,password=PASSWORD))
    row=c.one('users',{'id':uid})
   users[role]=access.public(row)
+ if c.one('settings',{'key':'plant_preview_seeded'}):return
  for index,plant in enumerate(pf.PLANTS):
   pf.create(c,dict(plant_id=plant['id'],title='Demo · '+['Base frame','Machined housing','Support assembly','Precision plate'][index],customer='Preview customer — not live data',po_number='DEMO-PO-'+str(index+1),quantity=2,due='2026-12-31',route='Fabrication + machining' if index%2 else 'Fabrication only',file=dict(name='demo-po.txt',content=base64.b64encode(b'LOCAL DEMO ONLY - not a customer purchase order').decode())),users['Design'])
   j=c.all('work_jobs',sort=[('id',-1)])[0]

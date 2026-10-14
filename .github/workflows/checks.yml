@@ -43,5 +43,7 @@ jobs:
           node --check public/financial-reports.js
           node --check public/store-daily.js
           node --check public/projects.js
+          node --check public/hr.js
+          node --check public/operations-updates.js
       - name: Combined corporate website and ERP build
         run: python build_production.py

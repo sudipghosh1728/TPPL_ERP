@@ -10,6 +10,8 @@ COLLECTIONS=('products','orders','movements','activity','settings','purchases','
              'journal_lines','invoice_items','settlements','requests','users','sessions','login_attempts',
              'work_jobs','job_documents','requirements','work_history','material_issues','store_documents','project_requests','project_messages','inspection_calls','project_notifications','maintenance_tickets','dispatch_outbox','dispatch_archives')
 KEYS={'settings':'key','requests':'token','sessions':'token_hash','login_attempts':'key'}
+COLLECTIONS+=('stock_corrections',)
+COLLECTIONS+=('employee_profiles','employee_leave','employee_attendance','attendance_requests','plant_locations','salary_structures','payroll_runs','hr_audit','alert_reads')
 DEFAULTS={
  'accounts':dict(email='',phone='',address='',system=0),
  'users':dict(active=1),
@@ -103,6 +105,11 @@ class MongoStore:
         self.db.dispatch_archives.create_index([('outbox_id',1),('chunk',1)],unique=True)
         self.db.work_jobs.create_index('plant_id')
         self.db.maintenance_tickets.create_index('plant_id')
+        for name in ('employee_profiles','salary_structures'):
+            self.db[name].create_index('user_id',unique=True)
+        self.db.plant_locations.create_index('plant_id',unique=True)
+        self.db.employee_attendance.create_index([('user_id',1),('date',1)],unique=True)
+        self.db.alert_reads.create_index([('user_id',1),('key',1)],unique=True)
         self.db.products.create_index('barcode',unique=True,partialFilterExpression={'barcode':{'$gt':''}})
         self.db.journals.create_index('source',unique=True,partialFilterExpression={'source':{'$type':'string'}})
         for collection,field in [('journal_lines','account_id'),('journal_lines','journal_id'),('invoice_items','order_id'),('settlements','order_id'),('settlements','purchase_id'),('settlements','account_id'),('sessions','user_id'),('requirements','job_id'),('job_documents','job_id'),('work_history','job_id'),('material_issues','requirement_id')]:

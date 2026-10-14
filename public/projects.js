@@ -4,7 +4,7 @@ const departments=['Admin','Design','Fabrication','Machining','QC','Store','Acco
 rolePages.QC=['jobs','maintenance','updates'];rolePages.Maintenance=['maintenance','jobs','updates'];
 for(const role of Object.keys(rolePages)){for(const p of ['jobs','maintenance','updates'])if(!rolePages[role].includes(p))rolePages[role].push(p)}
 const earlierJobs=manufacturingJobs,earlierDetail=jobDetail,earlierBindSession=bindSession,earlierUserForm=userForm,earlierOwner=jobOwner;
-jobOwner=j=>j.flow_version===2?({'Design review':'Design','Admin review':'Admin','Accounts review':'Accounts','Maintenance review':'Maintenance','QC approval':'QC','Store issue':'Store','Fabrication execution':'Fabrication','Machining execution':'Machining','QC inspection':'QC','Packing & dispatch':'Fabrication',Completed:'Complete'}[j.stage]||j.stage):earlierOwner(j);
+jobOwner=j=>j.flow_version===2?({'Design review':'Design','Admin review':'Admin','Accounts review':'Accounts','Maintenance review':'Maintenance','HR review':'HR','QC approval':'QC','Store issue':'Store','Fabrication execution':'Fabrication','Machining execution':'Machining','QC inspection':'QC','Packing & dispatch':'Fabrication',Completed:'Complete'}[j.stage]||j.stage):earlierOwner(j);
 const pbutton=(label,action,extra='',secondary=true)=>`<button class="${secondary?'secondary':'primary'}" data-project="${action}" ${extra}>${label}</button>`;
 const pj=()=>workJob(selectedJob),plantName=id=>state.plants?.find(p=>p.id===id)?.name||'Earlier workflow · no plant assigned';
 const projectRows=()=>state.work_jobs.filter(j=>(!selectedPlant||j.plant_id===selectedPlant)&&(departmentView==='All'||jobOwner(j)===departmentView));
@@ -13,7 +13,7 @@ bindSession=function(){earlierBindSession();document.title=(sessionUser.role==='
 manufacturingJobs=function(){
  if(selectedJob&&workJob(selectedJob))return jobDetail(workJob(selectedJob));
  const rows=projectRows().filter(j=>JSON.stringify(j).toLowerCase().includes(search.toLowerCase()));
- return heading('Projects & customer POs','QC-controlled production across Talawade, Solu, Chakan and Khandala.',canRole('Design')?pbutton('+ Create project','create','',false):'')+
+ return heading('Projects','QC-controlled production across Talawade, Solu, Chakan and Khandala.',canRole('Design')?pbutton('+ Create project','create','',false):'')+
  `<div class="project-strip"><span>${esc(selectedPlant?plantName(selectedPlant):'All four plants')}${selectedPlant?`<small>${esc(state.plants.find(p=>p.id===selectedPlant)?.area)} · ${esc(state.plants.find(p=>p.id===selectedPlant)?.capabilities)}</small>`:''}</span><label>Department queue <select id="department-view"><option>All</option>${departments.map(d=>`<option ${d===departmentView?'selected':''}>${d}</option>`).join('')}</select></label></div>`+
  `<div class="stats three">${stat('Active projects',rows.filter(j=>j.stage!=='Completed').length,'In the selected plant / queue','▤')}${stat('Awaiting QC',rows.filter(j=>j.stage.startsWith('QC')).length,'Approval or inspection','✓')}${stat('Ready to dispatch',rows.filter(j=>j.stage==='Packing & dispatch').length,'Final inspection completed','↗')}</div>`+
  `<section class="panel">${toolbar('Search project, customer, PO or dispatch date…')}${table(['PROJECT / PO','PLANT','QUANTITY','DISPATCH DATE','STAGE',''],rows.map(j=>[`<strong>${esc(j.title)}</strong><small>${jobRef(j)} · ${esc(j.po_number)}</small>`,esc(plantName(j.plant_id)),j.quantity||'—',esc(j.revised_due||j.due)+`${j.revised_due?'<small>Revised · PO '+esc(j.due)+'</small>':''}`,badge(j.stage),pbutton('Open project','open',`data-id="${j.id}"`)]))}</section>`;
@@ -33,7 +33,7 @@ function projectOverview(j){
   if(canRole('Design')&&j.stage==='Design review')buttons.push(pbutton('Submit to QC','submit','',false));
   if(['Fabrication execution','Machining execution'].includes(j.stage)&&canRole(jobOwner(j)))buttons.push(pbutton('Post progress update','progress'),pbutton('Process complete → QC','complete','',false));
   if(canRole('Store')&&j.stage==='Store issue')buttons.push(pbutton('Store verification complete','store-ready'));
-  if(['Admin review','Accounts review','Maintenance review'].includes(j.stage)&&canRole(jobOwner(j)))buttons.push(pbutton('Respond → QC → Design','request-done'));
+  if(['Admin review','Accounts review','Maintenance review','HR review'].includes(j.stage)&&canRole(jobOwner(j)))buttons.push(pbutton('Respond → QC → Design','request-done'));
   if(canRole('QC'))buttons.push(pbutton('Give a call · customer inspection','call'));
   if(canRole('QC')&&(j.stage==='QC inspection'||sessionUser.role==='Admin'))buttons.push(pbutton('Final inspection done','final','',false));
   if(canRole('Fabrication')&&j.stage==='Packing & dispatch')buttons.push(pbutton('Packing & dispatch done','dispatch','',false));
@@ -88,5 +88,5 @@ document.addEventListener('click',async e=>{const tab=e.target.closest('[data-pr
  }catch(err){toast(err.message)}});
 
 function updateNotificationBadge(){const el=$('#project-alerts');if(!el||!sessionUser)return;const seen=Number(localStorage.getItem('grey-notifications-'+sessionUser.id)||0);const unread=(state.project_notifications||[]).filter(n=>n.id>seen).length;el.textContent='Notifications'+(unread?' ('+unread+')':'');}
-setInterval(async()=>{if(!sessionUser||document.hidden||document.body.classList.contains('signed-out'))return;const userId=sessionUser.id;try{const r=await fetch('/api/projects/notifications');if(!r.ok)return;const result=await r.json();if(!sessionUser||sessionUser.id!==userId)return;state.project_notifications=result.notifications;updateNotificationBadge()}catch{}},15000);
+setInterval(async()=>{if(!sessionUser||document.hidden||document.body.classList.contains('signed-out'))return;const userId=sessionUser.id;try{const r=await fetch('/api/projects/notifications');if(!r.ok)return;const result=await r.json();if(!sessionUser||sessionUser.id!==userId)return;state.project_notifications=result.notifications;state.dispatch_alerts=result.dispatch_alerts||[];updateNotificationBadge();if(page==='updates')render()}catch{}},15000);
 document.addEventListener('click',e=>{if(e.target.closest('a[href="#updates"]')&&sessionUser){localStorage.setItem('grey-notifications-'+sessionUser.id,String(Math.max(0,...state.project_notifications.map(n=>n.id))));updateNotificationBadge()}});
