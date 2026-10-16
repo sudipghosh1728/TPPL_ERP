@@ -19,11 +19,11 @@ The selector lists Unit I Talawade, Unit II Solu / Alandi, Unit III Chakan / Was
 
 New projects use `flow_version=2`; earlier jobs retain their prior workflow. Admin and Design create projects with quantity, PO dispatch date and optional revised delivery date. They upload PO/revised PO, drawings and material requirements, and delete PO files with an audit reason. Design and Store upload optional TCs. Every department can upload EWAY challans. Documents and metadata can be updated at any stage. PO/design/material revisions return active work to Design for renewed QC review. Completed-project additions do not modify the dispatch snapshot.
 
-Design release → QC approval → Store for outstanding raw materials / paints → Fabrication and/or Machining → QC inspection → Fabrication packing → dispatch. Every process request requires QC/Admin approval. Handoffs cannot skip outstanding material issues. Machining-only projects bypass Fabrication production but still use Fabrication packing. Admin can make an audited override with a reason.
+Design release → QC approval → Store for outstanding raw materials / paints → Fabrication and/or Machining → QC inspection → Fabrication packing → dispatch. Production handoffs require QC/Admin approval. Department work/rework requests start immediately; the receiving team submits completed work for QC/Admin approval. Open requests block final inspection and dispatch. Handoffs cannot skip outstanding material issues. Machining-only projects bypass Fabrication production but still use Fabrication packing. Admin can make an audited override with a reason.
 
 Each project has persistent text chat, refreshed every ten seconds while open, and an audit history. Notifications refresh every fifteen seconds. QC customer inspection calls notify Admin and Design; only Admin approves a call. QC records OK or Rework, with required rework details and optional OK remarks. Outstanding call reports block final inspection. Final inspection notifies Admin, Design and Fabrication.
 
-Any department can raise technical Maintenance requests by plant. QC/Admin first approves the request, then Maintenance records progress and resolution. Requesters can reopen resolved or rejected tickets for another approval. This applies the rule that all requests pass through QC.
+Any department can raise technical Maintenance requests by plant. Requests open immediately for Maintenance. Maintenance records progress and submits completed repairs to QC/Admin for verification; rejected repairs return to Open. Requesters can reopen resolved tickets.
 
 ## Dispatch ZIP and email
 
@@ -42,3 +42,8 @@ For production, `python build_production.py` builds the corporate website and ER
 Run `python -m unittest discover -v` and `python test_browser.py browser-projects.cjs` against the disposable local replica set. Tests cover all plants and routes, permissions, duplicate saves, revisions, QC approval, calls/rework, chat isolation/escaping, archive snapshots, Maintenance, plant filters and mobile layouts. Email tests use a fake transport.
 
 Employee profiles, HR, attendance and payroll configuration are described in [HR_OPERATIONS.md](HR_OPERATIONS.md). Preview users also complete their profile on first sign-in. Use invented test details in the isolated preview.
+
+
+Reminders and attendance shortcuts
+
+Every signed-in employee has **Attendance** and **Send reminder** buttons in the header. Choose an individual or department and optionally link a project. The server determines the colour: Admin red, another department yellow, same department neutral. An open application polls every 15 seconds; each new reminder highlights the interface once for five seconds and remains in Notifications until marked read (read messages remain in history). A closed application displays unread reminders when reopened; these are in-app notifications, not device push messages. Admin/Design can mark a project urgent from its overview; the banner uses the same sender/recipient department colour rules. The 10:00 AM regular and 8:00 PM night check-in cutoffs, IST, remain unchanged.

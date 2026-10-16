@@ -37,6 +37,31 @@ def create(c,d,user):
 
 def pending(c,j):return c.one('project_requests',{'job_id':j['id'],'status':'Pending'})
 
+def direct_request(c,d,user):
+ j=project(c,d,user);m.version(j,d);open_job(j)
+ target=d.get('target');kind=d.get('kind','Handoff')
+ if target not in access.ROLES or kind not in ('Handoff','Rework'):raise ValueError('Choose a valid department and request type')
+ notes=m.text(d,'notes')
+ c.insert('project_requests',job_id=j['id'],mode='direct',target=target,kind=kind,notes=notes,status='Open',from_stage=j['stage'],created_by=user['id'],actor=user['name'],department=user['role'],created_at=m.now())
+ c.update('work_jobs',{'id':j['id']},{'final_inspection':False,**({'stage':'QC inspection'} if j['stage']=='Packing & dispatch' else {})})
+ record(c,j,user,kind+' sent directly to '+target,notes);notify(c,j,user,kind+' requested · '+target+' can start work',(target,'Admin'))
+
+def complete_request(c,d,user):
+ j=project(c,d,user);m.version(j,d);open_job(j)
+ r=c.one('project_requests',{'id':identifier(d.get('request')),'job_id':j['id'],'mode':'direct','status':'Open'})
+ if not r:raise ValueError('Choose an open department request')
+ access.require(user,(r['target'],));hr_ops.assigned(c,j,user)
+ notes=m.text(d,'notes')
+ c.update('project_requests',{'id':r['id']},{'status':'Pending','completion_notes':notes,'completed_by':user['name'],'submitted_at':m.now()})
+ record(c,j,user,r['target']+' work completed · awaiting QC',notes);notify(c,j,user,'Completed '+r['kind']+' requires QC inspection',('QC','Admin'))
+
+def urgency(c,d,user):
+ access.require(user,('Design',));j=project(c,d,user);m.version(j,d);open_job(j)
+ urgent=d.get('urgent')
+ if not isinstance(urgent,bool):raise ValueError('Choose urgent or normal priority')
+ c.update('work_jobs',{'id':j['id']},{'urgent':urgent,'urgent_by':user['name'],'urgent_role':user['role']})
+ record(c,j,user,'Project marked '+('urgent' if urgent else 'normal priority'))
+
 def request(c,d,user):
  j=project(c,d,user);m.version(j,d);open_job(j)
  access.require(user,('Design','Machining','Fabrication','QC','Store','Accounts','Maintenance','HR'))
@@ -65,6 +90,10 @@ def decide(c,d,user):
  decision=d.get('decision')
  if decision not in ('Approved','Rejected'):raise ValueError('Choose approve or reject')
  notes=m.text(d,'notes')
+ if r.get('mode')=='direct':
+  c.update('project_requests',{'id':r['id']},{'status':'Approved' if decision=='Approved' else 'Open','reviewer':user['name'],'review_notes':notes,'decided_at':m.now()})
+  record(c,j,user,decision+' completed '+r['kind']+' from '+r['target'],notes)
+  notify(c,j,user,decision+' completed work · '+r['target'],(r['target'],r['department'],'Admin'));return
  stage=TARGETS[r['target']] if decision=='Approved' else r['from_stage']
  c.update('project_requests',{'id':r['id']},{'status':decision,'reviewer':user['name'],'review_notes':notes,'decided_at':m.now()})
  values={'stage':stage}
@@ -160,6 +189,7 @@ def action(c,d,user):
   request(c,{**d,'target':target},user);return
  if a=='final_inspection':
   access.require(user,('QC',))
+  if c.one('project_requests',{'job_id':j['id'],'mode':'direct','status':{'$in':['Open','Pending']}}):raise ValueError('Complete department requests and obtain QC approval before final inspection')
   if j['stage']!='QC inspection' and user['role']!='Admin':raise ValueError('Project is not at final inspection')
   if j['machining_required'] and not j.get('machining_completed') and user['role']!='Admin':raise ValueError('Complete machining before final inspection')
   if user['role']!='Admin' and c.one('requirements',{'job_id':j['id'],'$expr':{'$lt':['$issued','$quantity']}}):raise ValueError('Store must issue all approved project materials before final inspection')
@@ -169,6 +199,7 @@ def action(c,d,user):
   c.update('work_jobs',{'id':j['id']},{'stage':'Packing & dispatch','final_inspection':True});record(c,j,user,'Final inspection done → Packing & dispatch',notes);notify(c,j,user,'Final inspection done',('Admin','Design','Fabrication'));return
  if a=='dispatch':
   access.require(user,('Fabrication',))
+  if c.one('project_requests',{'job_id':j['id'],'mode':'direct','status':{'$in':['Open','Pending']}}):raise ValueError('Complete department requests and obtain QC approval before dispatch')
   if j['stage']!='Packing & dispatch' or not j.get('final_inspection'):raise ValueError('Final QC inspection must be completed before dispatch')
   if not c.one('job_documents',{'job_id':j['id'],'kind':'EWAY challan'}):raise ValueError('Upload the EWAY challan before dispatch')
   if pending(c,j):raise ValueError('Resolve pending QC requests before dispatch')
@@ -216,14 +247,15 @@ def chat(c,d,user):
 
 def maintenance(c,d,user):
  if not d.get('id'):
-  c.insert('maintenance_tickets',plant_id=plant(d.get('plant_id')),category=m.text(d,'category'),equipment=m.text(d,'equipment'),description=m.text(d,'description'),status='QC approval',version=1,created_by=user['id'],requester=user['name'],department=user['role'],created_at=m.now(),updates=[]);return
+  c.insert('maintenance_tickets',plant_id=plant(d.get('plant_id')),category=m.text(d,'category'),equipment=m.text(d,'equipment'),description=m.text(d,'description'),status='Open',version=1,created_by=user['id'],requester=user['name'],department=user['role'],created_at=m.now(),updates=[]);return
  t=c.one('maintenance_tickets',{'id':identifier(d['id'])})
  if not t:raise ValueError('Maintenance ticket not found')
  if d.get('version')!=t['version']:raise ValueError('Ticket changed. Refresh before saving.')
  status=d.get('status');notes=m.text(d,'notes')
  if t['status']=='QC approval' and status in ('Open','Rejected'):access.require(user,('QC',))
- elif t['status'] in ('Open','In progress') and status in ('In progress','Resolved'):access.require(user,('Maintenance',))
- elif t['status'] in ('Resolved','Rejected') and status=='QC approval':
+ elif t['status'] in ('Open','In progress') and status in ('In progress','Awaiting QC'):access.require(user,('Maintenance',))
+ elif t['status']=='Awaiting QC' and status in ('Resolved','Open'):access.require(user,('QC',))
+ elif t['status'] in ('Resolved','Rejected') and status=='Open':
   if user['id']!=t['created_by']:access.require(user)
  else:raise ValueError('Invalid ticket transition')
  updates=t['updates']+[dict(status=status,notes=notes,by=user['name'],at=m.now())]
@@ -267,4 +299,4 @@ def state(c,data,user):
  data['maintenance_tickets']=c.all('maintenance_tickets',{} if user['role'] in ('Admin','QC','Maintenance') else {'created_by':user['id']},sort=[('id',-1)])
  data['archive_recipient']=(c.one('settings',{'key':'archive_recipient'}) or {}).get('value','sudipghosh1728@gmail.com') if user['role']=='Admin' else ''
 
-HANDLERS={'create':create,'edit':edit,'attach':attach,'delete-document':delete_document,'requirement':requirement,'issue':issue,'submit':submit,'request':request,'decide':decide,'action':action,'inspection':inspection,'chat':chat,'maintenance':maintenance,'archive-settings':archive_settings}
+HANDLERS={'create':create,'edit':edit,'attach':attach,'delete-document':delete_document,'requirement':requirement,'issue':issue,'submit':submit,'request':direct_request,'complete-request':complete_request,'urgency':urgency,'decide':decide,'action':action,'inspection':inspection,'chat':chat,'maintenance':maintenance,'archive-settings':archive_settings}

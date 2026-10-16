@@ -4,7 +4,7 @@ import access,manufacturing as m
 from storage import identifier
 
 CHUNK_SIZE=512*1024
-OWNED=('requirements','work_history','project_messages','project_requests','inspection_calls','project_notifications','dispatch_outbox','job_documents')
+OWNED=('reminders','requirements','work_history','project_messages','project_requests','inspection_calls','project_notifications','dispatch_outbox','job_documents')
 def now():return dt.datetime.now(dt.timezone.utc)
 def encoded(value):
  if isinstance(value,bytes):return {'bytes':len(value),'sha256':hashlib.sha256(value).hexdigest()}

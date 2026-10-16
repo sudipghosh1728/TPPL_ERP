@@ -46,5 +46,6 @@ jobs:
           node --check public/hr.js
           node --check public/operations-updates.js
           node --check public/project-delete.js
+          node --check public/reminders.js
       - name: Combined corporate website and ERP build
         run: python build_production.py

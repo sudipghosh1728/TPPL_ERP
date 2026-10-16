@@ -18,6 +18,7 @@ class ProjectDeletionTests(unittest.TestCase):
     c.insert('inspection_calls',job_id=jid,status='OK',report='Accepted')
     c.insert('project_messages',job_id=jid,body='Verified drawing',author='QC')
     c.insert('project_notifications',job_id=jid,message='Approved')
+    c.insert('reminders',job_id=jid,recipient_id=1,sender_role='Admin',sender_name='Admin',created_at='2026-10-16T09:00:00',message='Project reminder',read_at='')
     c.insert('alert_reads',user_id=1,key=f'2026-10-14:{jid}:2026-10-15:QC approval')
     c.insert('movements',product_id=pid,quantity=-2,reason=f'Job JOB-{jid:04} / requirement {rid}',date='2026-10-14')
    c.insert('accounts',name='Shared customer',type='Customer')

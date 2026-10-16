@@ -1,6 +1,6 @@
 """VECTORone HTTP application using native MongoDB transactions."""
 
-import project_deletion
+import project_deletion, reminders
 import datetime,hashlib,html,json,pathlib,time
 
 from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
@@ -93,8 +93,8 @@ def read_api(c,path,cookie):
         if uid!=user['id']:hr_ops.hr(user)
         return {'profile':c.one('employee_profiles',{'user_id':uid})}
 
-    if path=='/api/projects/notifications':
-        return {'notifications':c.all('project_notifications',{} if user['role']=='Admin' else {'roles':user['role']},sort=[('id',-1)])[:200],'dispatch_alerts':hr_ops.alerts(c,c.all('work_jobs'),user)}
+    if path in ('/api/projects/notifications','/api/notifications'):
+        return {'notifications':c.all('project_notifications',{} if user['role']=='Admin' else {'roles':user['role']},sort=[('id',-1)])[:200],'dispatch_alerts':hr_ops.alerts(c,c.all('work_jobs'),user),'reminders':reminders.inbox(c,user)}
     if path.startswith('/api/projects/delete-export/'):
         parts=path.removeprefix('/api/projects/delete-export/').split('/')
         if len(parts)!=2:raise ValueError('Invalid project archive link')
@@ -135,6 +135,7 @@ def read_api(c,path,cookie):
         data['store_invoices']=store_catalog.invoice_register(c,data if role=='Admin' else {k:data[k] for k in ('products','purchases')}) if role in ('Admin','Store') else []
         access.filter_state(c,data,user)
         hr_ops.state(c,data,user)
+        reminders.state(c,data,user)
 
         data['workspace']=workspace or company_config.get(c)
 
@@ -209,6 +210,7 @@ def write_api(c,path,d,cookie,ip):
 
     elif path=='/api/store-documents':access.require(user,('Store',))
     elif path.startswith('/api/projects/'):access.require(user,access.ROLES)
+    elif path.startswith('/api/reminders/'):access.require(user,access.ROLES)
     elif path.startswith('/api/hr/'):access.require(user,access.ROLES)
     elif path.startswith('/api/work/'):access.require(user,('Design','Machining','Fabrication','Store'))
 
@@ -233,6 +235,7 @@ def write_api(c,path,d,cookie,ip):
 
     if path=='/api/users':access.manage_user(c,d,user);log(c,'User access updated by '+user['name'])
 
+    elif path.startswith('/api/reminders/') and path.split('/')[-1] in reminders.HANDLERS:reminders.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/hr/') and path.split('/')[-1] in hr_ops.HANDLERS:hr_ops.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/projects/') and path.split('/')[-1] in project_flow.HANDLERS:project_flow.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/work/') and path.split('/')[-1] in work:

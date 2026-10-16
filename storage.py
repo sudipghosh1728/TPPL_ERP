@@ -10,7 +10,7 @@ COLLECTIONS=('products','orders','movements','activity','settings','purchases','
              'journal_lines','invoice_items','settlements','requests','users','sessions','login_attempts',
              'work_jobs','job_documents','requirements','work_history','material_issues','store_documents','project_requests','project_messages','inspection_calls','project_notifications','maintenance_tickets','dispatch_outbox','dispatch_archives')
 KEYS={'settings':'key','requests':'token','sessions':'token_hash','login_attempts':'key'}
-COLLECTIONS+=('stock_corrections','project_delete_exports','project_delete_parts')
+COLLECTIONS+=('reminders','stock_corrections','project_delete_exports','project_delete_parts')
 COLLECTIONS+=('employee_profiles','employee_leave','employee_attendance','attendance_requests','plant_locations','salary_structures','payroll_runs','hr_audit','alert_reads')
 DEFAULTS={
  'accounts':dict(email='',phone='',address='',system=0),
@@ -102,6 +102,8 @@ class MongoStore:
             if collection not in KEYS:self.db[collection].create_index('id',unique=True)
         for name in ('project_requests','project_messages','inspection_calls','project_notifications','dispatch_outbox'):
             self.db[name].create_index('job_id')
+        self.db.reminders.create_index([('recipient_id',1),('id',-1)])
+        self.db.reminders.create_index('job_id')
         self.db.dispatch_archives.create_index([('outbox_id',1),('chunk',1)],unique=True)
         for name in ('project_delete_exports','project_delete_parts'):
             self.db[name].create_index('expires_at',expireAfterSeconds=0)

@@ -21,20 +21,30 @@ class PlantProjectsTests(unittest.TestCase):
  def approve(self,jid):
   r=next(r for r in self.rows('project_requests',jid) if r['status']=='Pending')
   self.call('QC','projects/decide',job_id=jid,request=r['id'],decision='Approved',notes='Verified')
- def test_every_department_can_request_another_department_and_rework_needs_qc(self):
+ def test_every_department_can_request_directly_and_completed_work_needs_qc(self):
   for role in access.ROLES:
    jid=self.create(route='Fabrication only');target='Machining' if role!='Machining' else 'Fabrication'
    self.call(role,'projects/request',job_id=jid,target=target,kind='Rework',notes='Rework weld and dimensions')
-   self.assertEqual(self.job(jid)['stage'],'QC approval');request=self.rows('project_requests',jid)[0];self.assertEqual(request['kind'],'Rework');self.assertEqual(request['department'],role)
-   with self.assertRaises(access.AccessError):self.call('Fabrication','projects/decide',job_id=jid,request=request['id'],decision='Approved',notes='Cannot self release')
-   self.approve(jid);self.assertEqual(self.job(jid)['stage'],target+' execution')
-   if target=='Machining':self.assertTrue(self.job(jid)['machining_required']);self.assertFalse(self.job(jid)['machining_completed'])
-  jid=self.create()
-  for target in access.ROLES:
-   self.call('Store','projects/request',job_id=jid,target=target,notes='Department assistance')
-   request=next(r for r in self.rows('project_requests',jid) if r['status']=='Pending')
-   self.call('QC','projects/decide',job_id=jid,request=request['id'],decision='Rejected',notes='Keep original stage')
-  self.assertEqual(self.job(jid)['stage'],'Design review')
+   self.assertEqual(self.job(jid)['stage'],'Design review');request=self.rows('project_requests',jid)[0];self.assertEqual(request['status'],'Open')
+   with self.assertRaises(ValueError):self.call('QC','projects/decide',job_id=jid,request=request['id'],decision='Approved',notes='Not finished')
+   with self.assertRaises(access.AccessError):self.call('Accounts','projects/complete-request',job_id=jid,request=request['id'],notes='Wrong team')
+   with self.assertRaises(ValueError):self.call('Admin','projects/action',job_id=jid,action='final_inspection',notes='Unfinished rework')
+   self.call(target,'projects/complete-request',job_id=jid,request=request['id'],notes='Rework finished')
+   self.assertEqual(self.rows('project_requests',jid)[0]['status'],'Pending')
+   self.call('QC','projects/decide',job_id=jid,request=request['id'],decision='Rejected',notes='Dimensions need correction')
+   self.assertEqual(self.rows('project_requests',jid)[0]['status'],'Open')
+   self.call(target,'projects/complete-request',job_id=jid,request=request['id'],notes='Dimensions corrected')
+   self.approve(jid);self.assertEqual(self.job(jid)['stage'],'Design review');self.assertEqual(self.rows('project_requests',jid)[0]['status'],'Approved')
+ def test_rework_after_final_inspection_requires_fresh_final_inspection(self):
+  jid=self.create(route='Fabrication only')
+  self.call('Admin','projects/action',job_id=jid,action='override',stage='Packing & dispatch',notes='Initial inspection accepted')
+  self.call('QC','projects/request',job_id=jid,target='Fabrication',kind='Rework',notes='Repair packing damage')
+  self.assertEqual(self.job(jid)['stage'],'QC inspection');self.assertFalse(self.job(jid)['final_inspection'])
+  r=self.rows('project_requests',jid)[0]
+  self.call('Fabrication','projects/complete-request',job_id=jid,request=r['id'],notes='Damage repaired');self.approve(jid)
+  self.call('QC','projects/action',job_id=jid,action='final_inspection',notes='Rechecked repaired item')
+  self.assertEqual(self.job(jid)['stage'],'Packing & dispatch');self.assertTrue(self.job(jid)['final_inspection'])
+
  def test_routes_all_plants_and_archive_email_queue(self):
   for plant in pf.PLANTS:
    for route in pf.ROUTES:
@@ -98,7 +108,7 @@ class PlantProjectsTests(unittest.TestCase):
  def test_direct_handoff_cannot_skip_store_and_dispatch_snapshot_is_immutable(self):
   jid=self.create(route='Fabrication only')
   self.call('Design','projects/requirement',job_id=jid,product_id=1,quantity=2,material_group='Paint')
-  self.call('Design','projects/request',job_id=jid,target='Fabrication',notes='Request fabrication')
+  self.call('Design','projects/submit',job_id=jid,notes='Request fabrication')
   self.approve(jid);self.assertEqual(self.job(jid)['stage'],'Store issue')
   self.call('Admin','projects/action',job_id=jid,action='override',stage='QC inspection',notes='Inspect before release')
   with self.assertRaises(ValueError):self.call('QC','projects/action',job_id=jid,action='final_inspection',notes='Not issued')
@@ -111,26 +121,25 @@ class PlantProjectsTests(unittest.TestCase):
   self.assertEqual(before,after)
   z=zipfile.ZipFile(io.BytesIO(after));self.assertNotIn('price',json.loads(z.read('materials.json'))[0])
 
- def test_design_support_department_request_returns_through_qc(self):
+ def test_design_support_department_request_preserves_production_route(self):
   jid=self.create(route='Machining only')
   self.call('Design','projects/request',job_id=jid,target='Accounts',notes='Confirm customer terms')
-  self.approve(jid);self.assertEqual(self.job(jid)['stage'],'Accounts review')
-  with self.assertRaises(access.AccessError):self.call('Store','projects/action',job_id=jid,action='request_done',notes='Wrong department')
-  self.call('Accounts','projects/action',job_id=jid,action='request_done',notes='Terms confirmed')
-  self.assertEqual(self.job(jid)['stage'],'QC approval');self.approve(jid)
-  self.assertEqual(self.job(jid)['stage'],'Design review')
-  self.call('Design','projects/request',job_id=jid,target='Store',notes='Verify availability; no issue required')
-  self.approve(jid);self.call('Store','projects/action',job_id=jid,action='store_ready',notes='No outstanding requirements')
-  self.assertEqual(self.job(jid)['stage'],'Machining execution')
+  r=self.rows('project_requests',jid)[0]
+  self.call('Accounts','projects/complete-request',job_id=jid,request=r['id'],notes='Terms confirmed')
+  self.approve(jid);self.assertEqual(self.job(jid)['stage'],'Design review')
+  self.call('Design','projects/submit',job_id=jid,notes='Design ready')
+  self.approve(jid);self.assertEqual(self.job(jid)['stage'],'Machining execution')
 
  def test_maintenance_permissions_and_stale_writes(self):
   self.call('Accounts','projects/maintenance',plant_id='chakan',category='Internet',equipment='Office router',description='No connection')
   t=self.store.run(lambda c:c.all('maintenance_tickets')[0])
-  with self.assertRaises(access.AccessError):self.call('Maintenance','projects/maintenance',id=t['id'],version=1,status='Open',notes='Approve')
-  self.call('QC','projects/maintenance',id=t['id'],version=1,status='Open',notes='Approved')
-  with self.assertRaises(ValueError):self.call('Maintenance','projects/maintenance',id=t['id'],version=1,status='Resolved',notes='Fixed')
-  self.call('Maintenance','projects/maintenance',id=t['id'],version=2,status='In progress',notes='Checking switch')
-  self.call('Maintenance','projects/maintenance',id=t['id'],version=3,status='Resolved',notes='Replaced cable')
+  self.assertEqual(t['status'],'Open')
+  with self.assertRaises(access.AccessError):self.call('Accounts','projects/maintenance',id=t['id'],version=1,status='In progress',notes='Wrong team')
+  self.call('Maintenance','projects/maintenance',id=t['id'],version=1,status='In progress',notes='Checking switch')
+  with self.assertRaises(ValueError):self.call('Maintenance','projects/maintenance',id=t['id'],version=1,status='Awaiting QC',notes='Stale update')
+  self.call('Maintenance','projects/maintenance',id=t['id'],version=2,status='Awaiting QC',notes='Replaced cable')
+  with self.assertRaises(access.AccessError):self.call('Maintenance','projects/maintenance',id=t['id'],version=3,status='Resolved',notes='Self approval')
+  self.call('QC','projects/maintenance',id=t['id'],version=3,status='Resolved',notes='Repair verified')
   t=self.store.run(lambda c:c.all('maintenance_tickets')[0]);self.assertEqual(t['status'],'Resolved');self.assertEqual(len(t['updates']),3)
 
 if __name__=='__main__':unittest.main()
