@@ -21,6 +21,20 @@ class PlantProjectsTests(unittest.TestCase):
  def approve(self,jid):
   r=next(r for r in self.rows('project_requests',jid) if r['status']=='Pending')
   self.call('QC','projects/decide',job_id=jid,request=r['id'],decision='Approved',notes='Verified')
+ def test_every_department_can_request_another_department_and_rework_needs_qc(self):
+  for role in access.ROLES:
+   jid=self.create(route='Fabrication only');target='Machining' if role!='Machining' else 'Fabrication'
+   self.call(role,'projects/request',job_id=jid,target=target,kind='Rework',notes='Rework weld and dimensions')
+   self.assertEqual(self.job(jid)['stage'],'QC approval');request=self.rows('project_requests',jid)[0];self.assertEqual(request['kind'],'Rework');self.assertEqual(request['department'],role)
+   with self.assertRaises(access.AccessError):self.call('Fabrication','projects/decide',job_id=jid,request=request['id'],decision='Approved',notes='Cannot self release')
+   self.approve(jid);self.assertEqual(self.job(jid)['stage'],target+' execution')
+   if target=='Machining':self.assertTrue(self.job(jid)['machining_required']);self.assertFalse(self.job(jid)['machining_completed'])
+  jid=self.create()
+  for target in access.ROLES:
+   self.call('Store','projects/request',job_id=jid,target=target,notes='Department assistance')
+   request=next(r for r in self.rows('project_requests',jid) if r['status']=='Pending')
+   self.call('QC','projects/decide',job_id=jid,request=request['id'],decision='Rejected',notes='Keep original stage')
+  self.assertEqual(self.job(jid)['stage'],'Design review')
  def test_routes_all_plants_and_archive_email_queue(self):
   for plant in pf.PLANTS:
    for route in pf.ROUTES:

@@ -5,6 +5,11 @@ import access
 from storage import identifier
 
 IST=dt.timezone(dt.timedelta(hours=5, minutes=30))
+SHIFT_CUTOFFS={'Regular':dt.time(10,0),'Night':dt.time(20,0)}
+
+def shift(value):
+    if value not in SHIFT_CUTOFFS:raise ValueError('Choose Regular or Night shift')
+    return value
 def now(): return dt.datetime.now(IST)
 def today(): return now().date().isoformat()
 def hr(user): access.require(user,('HR',))
@@ -126,9 +131,12 @@ def attendance(c,d,user):
     meters=distance(lat,lon,location['latitude'],location['longitude'])
     valid=accuracy<=30 and meters+accuracy<=30
     if action=='start':
-        if stamp.time().replace(tzinfo=None)>dt.time(9,15): raise ValueError('Check-in closes at 9:15 AM IST. Request regularization.')
+        selected=shift(d.get('shift','Regular'))
+        if row and row.get('shift','Regular')!=selected:raise ValueError('This date already has a different shift. Request HR regularization to correct it.')
+        if stamp.time().replace(tzinfo=None)>=SHIFT_CUTOFFS[selected]:raise ValueError(selected+' shift check-in must start before '+('10:00 AM' if selected=='Regular' else '8:00 PM')+' IST. Request regularization.')
+        if c.one('employee_attendance',{'user_id':uid,'status':'Present','out_at':{'$in':['',None]}}):raise ValueError('Check out of your previous attendance before starting another shift')
         if not valid: raise ValueError('Accurate GPS within the 30 metre plant boundary is required')
-        values=dict(user_id=uid,date=day,plant_id=location['plant_id'],status='Verifying',started_at=stamp.isoformat(),last_at=stamp.isoformat(),seconds=0,nonce=secrets.token_urlsafe(24),accuracy=accuracy,distance=round(meters,1))
+        values=dict(user_id=uid,date=day,shift=selected,plant_id=location['plant_id'],status='Verifying',started_at=stamp.isoformat(),last_at=stamp.isoformat(),seconds=0,nonce=secrets.token_urlsafe(24),accuracy=accuracy,distance=round(meters,1))
         if row:c.update('employee_attendance',{'id':row['id']},values)
         else:c.insert('employee_attendance',**values)
     else:
@@ -146,8 +154,11 @@ def regularize(c,d,user):
         if day>today(): raise ValueError('Cannot regularize a future date')
         if c.one('attendance_requests',{'user_id':user['id'],'date':day,'status':'Pending'}):raise ValueError('Request already pending')
         start=dt.time.fromisoformat(str(d.get('in_time')));end=dt.time.fromisoformat(str(d['out_time'])) if d.get('out_time') else None
-        if end and end<=start:raise ValueError('Checkout must follow check-in')
-        c.insert('attendance_requests',user_id=user['id'],date=day,in_time=start.isoformat(),out_time=end.isoformat() if end else '',reason=text(d,'reason',1000),status='Pending')
+        selected=shift(d.get('shift','Regular'));out_day=date(d['out_date']) if d.get('out_date') else ((dt.date.fromisoformat(day)+dt.timedelta(days=1)).isoformat() if selected=='Night' and end and end<=start else day)
+        if end:
+            checkout=dt.datetime.fromisoformat(out_day+'T'+end.isoformat()).replace(tzinfo=IST);checkin=dt.datetime.fromisoformat(day+'T'+start.isoformat()).replace(tzinfo=IST)
+            if not checkin<checkout<=now() or checkout-checkin>dt.timedelta(hours=24):raise ValueError('Checkout must follow check-in within 24 hours and cannot be in the future')
+        c.insert('attendance_requests',user_id=user['id'],date=day,shift=selected,in_time=start.isoformat(),out_time=end.isoformat() if end else '',out_date=out_day if end else '',reason=text(d,'reason',1000),status='Pending')
     else:
         hr(user);r=c.one('attendance_requests',{'id':identifier(d['id']),'status':'Pending'})
         if not r:raise ValueError('Request already decided')
@@ -156,7 +167,7 @@ def regularize(c,d,user):
         c.touch('attendance_requests',r['id']);c.update('attendance_requests',{'id':r['id']},{'status':status,'reviewer':user['id'],'notes':text(d,'notes')})
         if status=='Approved':
             q={'user_id':r['user_id'],'date':r['date']};old=c.one('employee_attendance',q)
-            v={**q,'status':'Present','in_at':r['date']+'T'+r['in_time']+'+05:30','out_at':r['date']+'T'+r['out_time']+'+05:30' if r['out_time'] else '', 'regularized':True,'regularization_id':r['id']}
+            v={**q,'shift':r.get('shift','Regular'),'status':'Present','in_at':r['date']+'T'+r['in_time']+'+05:30','out_at':r.get('out_date',r['date'])+'T'+r['out_time']+'+05:30' if r['out_time'] else '', 'regularized':True,'regularization_id':r['id']}
             if old:c.update('employee_attendance',{'id':old['id']},v)
             else:c.insert('employee_attendance',**v)
         audit(c,user,'Attendance '+status+': '+str(r['id']))
@@ -215,7 +226,7 @@ def state(c,data,user):
         if r['user_id']!=uid:r.pop('nonce',None)
     data['plant_locations']=c.all('plant_locations')
     data['hr_audit']=c.all('hr_audit',sort=[('id',-1)])[:100] if admin else []
-    data['hr_today']=today();data['attendance_open']=now().time().replace(tzinfo=None)<=dt.time(9,15)
+    data['hr_today']=today();data['attendance_shifts']={name:{'cutoff':cutoff.strftime('%H:%M'),'open':now().time().replace(tzinfo=None)<cutoff} for name,cutoff in SHIFT_CUTOFFS.items()};data['attendance_open']=data['attendance_shifts']['Regular']['open']
     data['dispatch_alerts']=alerts(c,data.get('work_jobs',[]),user)
 
 def alerts(c,jobs,user):

@@ -7,7 +7,7 @@ PLANTS=[dict(id='talawade',name='Unit I · Talawade, Pune',area='40,000 sq. ft.'
 STAGES=['Design review','Admin review','Accounts review','Maintenance review','HR review','QC approval','Store issue','Fabrication execution','Machining execution','QC inspection','Packing & dispatch','Completed']
 ROUTES={'Fabrication only':False,'Fabrication + machining':True,'Machining only':True}
 TARGETS={'Design':'Design review','Store':'Store issue','Fabrication':'Fabrication execution','Machining':'Machining execution','QC':'QC inspection','Admin':'Admin review','Accounts':'Accounts review','Maintenance':'Maintenance review','HR':'HR review'}
-REQUEST_TARGETS={'HR':('Design','QC','Admin'),'Accounts':('Design','QC','Admin'),'Maintenance':('Design','QC','Admin'),'Design':tuple(access.ROLES),'Machining':('Design','Fabrication','QC','Admin','Store'),'Fabrication':('Design','Machining','QC','Admin'),'QC':('Design','Fabrication','Machining','Store','Admin'),'Store':('Design','QC','Admin')}
+REQUEST_TARGETS={role:tuple(access.ROLES) for role in access.ROLES}
 
 def plant(value):
  if value not in {p['id'] for p in PLANTS}:raise ValueError('Choose a plant')
@@ -43,10 +43,11 @@ def request(c,d,user):
  target=d.get('target')
  if target not in (access.ROLES if user['role']=='Admin' else REQUEST_TARGETS.get(user['role'],())):raise ValueError('Choose an allowed destination department')
  if pending(c,j):raise ValueError('QC must decide the current request first')
- if target=='Machining' and not j['machining_required']:raise ValueError('Design must select a machining route first')
- c.insert('project_requests',job_id=j['id'],target=target,kind='Handoff',notes=m.text(d,'notes'),status='Pending',from_stage=j['stage'],created_by=user['id'],actor=user['name'],department=user['role'],created_at=m.now())
+ kind=d.get('kind','Handoff')
+ if kind not in ('Handoff','Rework'):raise ValueError('Choose a handoff or rework request')
+ c.insert('project_requests',job_id=j['id'],target=target,kind=kind,notes=m.text(d,'notes'),status='Pending',from_stage=j['stage'],created_by=user['id'],actor=user['name'],department=user['role'],created_at=m.now())
  c.update('work_jobs',{'id':j['id']},{'stage':'QC approval','final_inspection':False})
- record(c,j,user,'Requested '+target+' · awaiting QC',d['notes']);notify(c,j,user,'Approval requested for '+target,('QC','Admin'))
+ record(c,j,user,kind+' requested from '+target+' · awaiting QC',d['notes']);notify(c,j,user,kind+' approval requested for '+target,('QC','Admin'))
 
 def submit(c,d,user):
  access.require(user,('Design',));j=project(c,d,user);m.version(j,d);open_job(j)
@@ -70,6 +71,9 @@ def decide(c,d,user):
  if decision=='Approved' and r['target'] in ('Store','Fabrication','Machining'):
   next_stage=stage if r['target']!='Store' else ('Machining execution' if j['route']=='Machining only' else 'Fabrication execution')
   if c.one('requirements',{'job_id':j['id'],'$expr':{'$lt':['$issued','$quantity']}}):values={'stage':'Store issue','store_next_stage':next_stage}
+ if decision=='Approved' and r['target']=='Machining':
+  values.update(machining_required=True,machining_completed=False)
+  if j['route']=='Fabrication only':values['route']='Fabrication + machining'
  c.update('work_jobs',{'id':j['id']},values)
  if decision=='Approved':c.update('requirements',{'job_id':j['id']},{'approved':1})
  record(c,j,user,decision+' request to '+r['target']+' → '+values['stage'],notes);notify(c,j,user,decision+': '+r['target']+' · '+values['stage'],(r['target'],r['department'],'Admin','Store') if values['stage']=='Store issue' else (r['target'],r['department'],'Admin'))
