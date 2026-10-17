@@ -1,6 +1,6 @@
 """VECTORone HTTP application using native MongoDB transactions."""
 
-import project_deletion, reminders
+import project_deletion, reminders, qc_ops
 import datetime,hashlib,html,json,pathlib,time
 
 from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
@@ -88,6 +88,14 @@ def read_api(c,path,cookie):
 
     company_config.guard(c,path)
 
+    if path.startswith('/api/qc/'):
+        parts=path.removeprefix('/api/qc/').split('/')
+        if len(parts)==2 and parts[0]=='batch':return qc_ops.detail(c,parts[1],user)
+        if len(parts)==3 and parts[0]=='export':return qc_ops.export(c,parts[1],user,parts[2])
+        if len(parts)==2 and parts[0]=='packet':return qc_ops.packet(c,parts[1],user)
+        if len(parts)==2 and parts[0]=='tracker':return qc_ops.tracker_export(c,parts[1],user)
+        raise ValueError('Unknown QC report route')
+
     if path.startswith('/api/hr/profile/'):
         uid=identifier(path.rsplit('/',1)[-1])
         if uid!=user['id']:hr_ops.hr(user)
@@ -136,6 +144,7 @@ def read_api(c,path,cookie):
         access.filter_state(c,data,user)
         hr_ops.state(c,data,user)
         reminders.state(c,data,user)
+        qc_ops.state(c,data,user)
 
         data['workspace']=workspace or company_config.get(c)
 
@@ -210,6 +219,7 @@ def write_api(c,path,d,cookie,ip):
 
     elif path=='/api/store-documents':access.require(user,('Store',))
     elif path.startswith('/api/projects/'):access.require(user,access.ROLES)
+    elif path.startswith('/api/qc/'):access.require(user,access.ROLES)
     elif path.startswith('/api/reminders/'):access.require(user,access.ROLES)
     elif path.startswith('/api/hr/'):access.require(user,access.ROLES)
     elif path.startswith('/api/work/'):access.require(user,('Design','Machining','Fabrication','Store'))
@@ -228,6 +238,7 @@ def write_api(c,path,d,cookie,ip):
 
         c.insert('requests',token=token)
 
+    if path=='/api/qc/preview':return qc_ops.preview(c,d,user)
     if path=='/api/projects/delete-export':return project_deletion.prepare(c,d,user)
     if path=='/api/projects/delete':return project_deletion.delete(c,d,user)
 
@@ -235,6 +246,7 @@ def write_api(c,path,d,cookie,ip):
 
     if path=='/api/users':access.manage_user(c,d,user);log(c,'User access updated by '+user['name'])
 
+    elif path.startswith('/api/qc/') and path.split('/')[-1] in qc_ops.HANDLERS:qc_ops.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/reminders/') and path.split('/')[-1] in reminders.HANDLERS:reminders.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/hr/') and path.split('/')[-1] in hr_ops.HANDLERS:hr_ops.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/projects/') and path.split('/')[-1] in project_flow.HANDLERS:project_flow.HANDLERS[path.split('/')[-1]](c,d,user)

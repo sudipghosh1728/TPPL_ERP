@@ -1,6 +1,6 @@
 """Plant projects, QC gates, inspection calls, maintenance and project archives."""
 import datetime, io, json, zipfile
-import access, manufacturing as m, store_catalog, hr_ops
+import access, manufacturing as m, store_catalog, hr_ops, qc_ops
 from storage import identifier
 
 PLANTS=[dict(id='talawade',name='Unit I · Talawade, Pune',area='40,000 sq. ft.',capabilities='Profile cutting, bending and machining',cranes='Up to 20 tonnes'),dict(id='solu',name='Unit II · Solu, Alandi',area='160,000 sq. ft.',capabilities='Machining, welding, painting and shot blasting',cranes='Up to 40 tonnes'),dict(id='chakan',name='Unit III · Chakan, Wasuli',area='46,000 sq. ft.',capabilities='Machining and fabrication',cranes='10 tonnes'),dict(id='khandala',name='Unit IV · Khandala, Satara',area='70,000 sq. ft.',capabilities='Heavy machining, bending and laser cutting',cranes='Up to 32 tonnes')]
@@ -188,6 +188,7 @@ def action(c,d,user):
   target='Machining' if a=='fabrication_done' and j['machining_required'] else 'QC'
   request(c,{**d,'target':target},user);return
  if a=='final_inspection':
+  qc_ops.gate(c,j)
   access.require(user,('QC',))
   if c.one('project_requests',{'job_id':j['id'],'mode':'direct','status':{'$in':['Open','Pending']}}):raise ValueError('Complete department requests and obtain QC approval before final inspection')
   if j['stage']!='QC inspection' and user['role']!='Admin':raise ValueError('Project is not at final inspection')
@@ -198,6 +199,7 @@ def action(c,d,user):
   c.update('project_requests',{'job_id':j['id'],'status':'Pending'},{'status':'Superseded','review_notes':'Admin final inspection override: '+notes})
   c.update('work_jobs',{'id':j['id']},{'stage':'Packing & dispatch','final_inspection':True});record(c,j,user,'Final inspection done → Packing & dispatch',notes);notify(c,j,user,'Final inspection done',('Admin','Design','Fabrication'));return
  if a=='dispatch':
+  qc_ops.gate(c,j,dispatching=True)
   access.require(user,('Fabrication',))
   if c.one('project_requests',{'job_id':j['id'],'mode':'direct','status':{'$in':['Open','Pending']}}):raise ValueError('Complete department requests and obtain QC approval before dispatch')
   if j['stage']!='Packing & dispatch' or not j.get('final_inspection'):raise ValueError('Final QC inspection must be completed before dispatch')
@@ -273,8 +275,11 @@ def build_archive(c,jid,user):
  output=io.BytesIO()
  with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
   z.writestr('project.json',json.dumps(j,indent=2,default=str))
-  for collection in ('requirements','work_history','project_messages','project_requests','inspection_calls'):
+  for collection in ('requirements','work_history','project_messages','project_requests','inspection_calls',*qc_ops.COLLECTIONS):
    z.writestr(collection+'.json',json.dumps(c.all(collection,{'job_id':j['id']}),indent=2,default=str))
+  for report in c.all('qc_reports',{'job_id':j['id']}):
+   for kind in ('pdf','xlsx'):
+    doc=qc_ops.export(c,report['id'],user,kind)['_download'];z.writestr('qc-reports/'+doc['name'],doc['content'])
   project_requirements=c.all('requirements',{'job_id':j['id']})
   reqs=[r['id'] for r in project_requirements]
   material_ids=list({r['product_id'] for r in project_requirements})

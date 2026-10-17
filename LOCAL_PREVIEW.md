@@ -1,5 +1,7 @@
 # TPPL and GREY one local preview
 
+The **QC dispatch & reports** workspace is available to every department. See [QC_OPERATIONS.md](QC_OPERATIONS.md) for imports, measurement entry, exports and QC-controlled release. Customer examples in this workstation's isolated preview remain unapproved; they are not live production records.
+
 This isolated preview is for local review. Production deployment was authorized on 13 October 2026; future changes still require an explicit publishing instruction.
 
 On this configured workstation, start both the local database and preview with `pwsh -File .\start-local-preview.ps1`. It opens no browser and performs no deployment. Alternatively, start the dedicated MongoDB replica set on port 27018, then run:

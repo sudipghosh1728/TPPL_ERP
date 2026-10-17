@@ -193,3 +193,6 @@ Checks: `python -m unittest discover -v`, `python test_browser.py browser-portal
 
 
 Local-only plant/QC preview: see [LOCAL_PREVIEW.md](LOCAL_PREVIEW.md) for startup, sample accounts, workflow rules and email setup.
+
+
+QC dispatch tracking and report preparation for all departments: see [QC_OPERATIONS.md](QC_OPERATIONS.md) for drawing batches, material traceability, Excel imports, QC approval and PDF/Excel/ZIP exports.

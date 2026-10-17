@@ -34,7 +34,7 @@ def save(c,d):
  return value
 
 def guard(c,path):
- if (path.startswith('/api/projects/') or path.startswith('/api/work/') or path.startswith('/api/documents/') or path in ('/api/jobs','/api/job-action')) and not get(c)['manufacturing']:
+ if (path.startswith('/api/qc/') or path.startswith('/api/projects/') or path.startswith('/api/work/') or path.startswith('/api/documents/') or path in ('/api/jobs','/api/job-action')) and not get(c)['manufacturing']:
   raise access.AccessError('Manufacturing is disabled for this company',403)
 
 def product_details(c,d):
