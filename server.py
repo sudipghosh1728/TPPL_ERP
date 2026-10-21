@@ -1,6 +1,6 @@
 """VECTORone HTTP application using native MongoDB transactions."""
 
-import project_deletion, reminders, qc_ops
+import project_deletion, reminders, qc_ops, report_workshop
 import datetime,hashlib,html,json,pathlib,time
 
 from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
@@ -87,6 +87,13 @@ def read_api(c,path,cookie):
     if not user:raise access.AccessError('Please sign in to continue',401)
 
     company_config.guard(c,path)
+
+    if path.startswith('/api/workbooks/'):
+        parts=path.removeprefix('/api/workbooks/').split('/')
+        if parts==['list']:return {'reports':report_workshop.listing(c,user)}
+        if len(parts)==2 and parts[0]=='detail':return report_workshop.detail(c,parts[1],user)
+        if len(parts)==2 and parts[0]=='export':return report_workshop.export(c,parts[1],user)
+        raise ValueError('Unknown report workshop route')
 
     if path.startswith('/api/qc/'):
         parts=path.removeprefix('/api/qc/').split('/')
@@ -220,6 +227,7 @@ def write_api(c,path,d,cookie,ip):
     elif path=='/api/store-documents':access.require(user,('Store',))
     elif path.startswith('/api/projects/'):access.require(user,access.ROLES)
     elif path.startswith('/api/qc/'):access.require(user,access.ROLES)
+    elif path.startswith('/api/workbooks/'):access.require(user,access.ROLES)
     elif path.startswith('/api/reminders/'):access.require(user,access.ROLES)
     elif path.startswith('/api/hr/'):access.require(user,access.ROLES)
     elif path.startswith('/api/work/'):access.require(user,('Design','Machining','Fabrication','Store'))
@@ -238,6 +246,10 @@ def write_api(c,path,d,cookie,ip):
 
         c.insert('requests',token=token)
 
+    if path.startswith('/api/workbooks/'):
+        action=path.rsplit('/',1)[-1]
+        if action not in report_workshop.HANDLERS:raise ValueError('Unknown report workshop action')
+        return report_workshop.HANDLERS[action](c,d,user)
     if path=='/api/qc/preview':return qc_ops.preview(c,d,user)
     if path=='/api/projects/delete-export':return project_deletion.prepare(c,d,user)
     if path=='/api/projects/delete':return project_deletion.delete(c,d,user)

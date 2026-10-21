@@ -11,6 +11,7 @@ COLLECTIONS=('products','orders','movements','activity','settings','purchases','
              'work_jobs','job_documents','requirements','work_history','material_issues','store_documents','project_requests','project_messages','inspection_calls','project_notifications','maintenance_tickets','dispatch_outbox','dispatch_archives')
 KEYS={'settings':'key','requests':'token','sessions':'token_hash','login_attempts':'key'}
 COLLECTIONS+=('qc_batches','qc_reports','qc_trace_lots','qc_imports','qc_audit')
+COLLECTIONS+=('report_workbooks','report_workbook_audit')
 COLLECTIONS+=('reminders','stock_corrections','project_delete_exports','project_delete_parts')
 COLLECTIONS+=('employee_profiles','employee_leave','employee_attendance','attendance_requests','plant_locations','salary_structures','payroll_runs','hr_audit','alert_reads')
 DEFAULTS={
@@ -103,7 +104,8 @@ class MongoStore:
             if collection not in KEYS:self.db[collection].create_index('id',unique=True)
         for name in ('project_requests','project_messages','inspection_calls','project_notifications','dispatch_outbox'):
             self.db[name].create_index('job_id')
-        for name in ('qc_batches','qc_reports','qc_trace_lots','qc_imports','qc_audit'):self.db[name].create_index('job_id')
+        for name in ('qc_batches','qc_reports','qc_trace_lots','qc_imports','qc_audit','report_workbooks','report_workbook_audit'):self.db[name].create_index('job_id')
+        self.db['report_workbook_audit'].create_index('report_id')
         self.db.qc_reports.create_index('batch_id')
         self.db.qc_audit.create_index('batch_id')
         self.db.reminders.create_index([('recipient_id',1),('id',-1)])

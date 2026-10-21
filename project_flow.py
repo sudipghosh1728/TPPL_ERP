@@ -270,10 +270,12 @@ def archive_settings(c,d,user):
  c.update('settings',{'key':'archive_recipient'},{'key':'archive_recipient','value':address},upsert=True)
 
 def build_archive(c,jid,user):
+ import report_workshop
  j=project(c,{'job_id':jid},user)
  if j['stage']!='Completed':raise ValueError('Project archive is available after dispatch')
  output=io.BytesIO()
  with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
+  report_workshop.archive(z,c,jid)
   z.writestr('project.json',json.dumps(j,indent=2,default=str))
   for collection in ('requirements','work_history','project_messages','project_requests','inspection_calls',*qc_ops.COLLECTIONS):
    z.writestr(collection+'.json',json.dumps(c.all(collection,{'job_id':j['id']}),indent=2,default=str))

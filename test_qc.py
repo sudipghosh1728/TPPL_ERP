@@ -22,7 +22,29 @@ def tracker_file():
  ws=wb.create_sheet('Current PO');ws.append(['Thickness','Heat No','Plate No','AI number','Qty','Dispatch Date','Actual Dispatch Date']);ws.append(['20mm','HEAT-1','PLATE-1','AI-1',12,'2026-09-01','']);ws.append(['20mm','HEAT-2','PLATE-2','AI-2',8,'2026-10-01',''])
  out=io.BytesIO();wb.save(out);return dict(name='tracker.xlsx',content=base64.b64encode(out.getvalue()).decode())
 
+def compact_file(qty='QTY:- 01',po='PO No. :- '):
+ wb=Workbook();ws=wb.active;ws['C1']='INSPECTION REPORT';ws['A3']='CUSTOMER:- Test';ws['E3']='Part Name.- Compact plate';ws['F3']='Date:- 01.09.2026';ws['A4']='DRG No:- TEST-01';ws['C4']='REV - 01';ws['E4']=po;ws['F4']=qty
+ for cell,value in {'A6':'SR No.','B6':'DESCRIPTION','C6':'SPECIFIED','D6':'ACTUAL','F6':'Remark','D7':1,'E7':2,'B8':'Reference to Dr. No. REF-02'}.items():ws[cell]=value
+ for index,spec in enumerate(['Ø298.4(±0.5)','35.5 MAX','24(=2/-1)'],9):
+  ws.cell(index,1,index-8);ws.cell(index,2,index-8);ws.cell(index,3,spec);ws.cell(index,4,[298.3,36,25][index-9]);ws.cell(index,5,[298.3,35.5,25][index-9])
+ out=io.BytesIO();wb.save(out);return dict(name='compact.xlsx',content=base64.b64encode(out.getvalue()).decode())
+
 class QCExcelTests(unittest.TestCase):
+ def test_compact_blank_template_and_historical_validation(self):
+  r=x.inspection(compact_file(),blank=True,quantity=10,po='PO-QC')['report']
+  self.assertEqual(r['quantity'],10);self.assertEqual(r['po'],'PO-QC');self.assertEqual(r['part_name'],'Compact plate');self.assertEqual(r['summary']['Missing'],30)
+  self.assertEqual(r['characteristics'][0]['limits'],['297.9','298.9']);self.assertEqual(r['characteristics'][1]['limits'],[None,'35.5']);self.assertIsNone(r['characteristics'][2]['limits'])
+  self.assertIn('REF-02',r['characteristics'][0]['description']);self.assertTrue(any('piece numbering' in v for v in r['warnings']))
+  with self.assertRaisesRegex(ValueError,'Drawing and PO'):x.inspection(compact_file())
+  with self.assertRaisesRegex(ValueError,'exceeds header quantity'):x.inspection(compact_file(po='PO No: PO-QC'))
+  r=x.inspection(compact_file('Quantity: 2 PCS','PO No: PO-QC'))['report']
+  self.assertEqual(r['summary'],{'OK':3,'Rework':1,'Review':2,'Missing':0});self.assertEqual(r['characteristics'][0]['values'],['298.3','298.3'])
+  for qty in ('QTY: 1.5','QTY: 101','QTY: =1+1'):
+   with self.assertRaisesRegex(ValueError,'whole number from 1 to 100'):x.inspection(compact_file(qty,'PO No: PO-QC'))
+  with self.assertRaisesRegex(ValueError,'quantity is missing'):x.inspection(compact_file('QTY:','PO No: PO-QC'))
+  self.assertEqual(x.inspection(compact_file('QTY:'),blank=True,quantity=3,po='PO-QC')['report']['summary']['Missing'],9)
+  self.assertEqual(x.inspection(compact_file('QTY: =1+1'),blank=True,quantity=3,po='PO-QC')['report']['summary']['Missing'],9)
+
  def test_layouts_limits_formulas_and_blank_templates(self):
   for header in (7,8):
    r=x.inspection(workbook_file(header))['report'];self.assertEqual(r['quantity'],10);self.assertEqual(len(r['characteristics']),2);self.assertEqual(r['summary'],{'OK':10,'Review':10,'Rework':0,'Missing':0})

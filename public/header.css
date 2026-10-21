@@ -1,0 +1,10 @@
+/* The toolbar grows with its actions at every viewport and browser zoom. */
+.main > header{height:auto;min-height:80px;padding:16px 28px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px}
+.main > header .breadcrumb{display:flex;flex:1 0 180px;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;line-height:1.5}
+.main > header .breadcrumb span{padding:0}
+.main > header .breadcrumb #portal-name{white-space:nowrap;color:var(--green);font-weight:600}
+.main > header .breadcrumb strong{overflow-wrap:anywhere}
+.main > header .header-right{display:flex;flex:1 1 660px;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;min-width:0;max-width:100%}
+.main > header .header-right button,.main > header .header-right a{min-height:36px;max-width:100%;white-space:normal;text-align:center}
+@media(max-width:1200px){.main > header .header-right{flex-basis:100%;justify-content:flex-start}}
+@media(max-width:800px){.main > header{padding:14px 16px;align-items:stretch;flex-direction:column}.main > header .breadcrumb{flex:0 1 auto}.main > header .header-right{flex:0 1 auto;width:100%}}

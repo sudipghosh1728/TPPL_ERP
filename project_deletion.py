@@ -5,6 +5,7 @@ from storage import identifier
 
 CHUNK_SIZE=512*1024
 OWNED=('qc_batches','qc_reports','qc_trace_lots','qc_imports','qc_audit','reminders','requirements','work_history','project_messages','project_requests','inspection_calls','project_notifications','dispatch_outbox','job_documents')
+OWNED+=('report_workbooks','report_workbook_audit')
 def now():return dt.datetime.now(dt.timezone.utc)
 def encoded(value):
  if isinstance(value,bytes):return {'bytes':len(value),'sha256':hashlib.sha256(value).hexdigest()}
@@ -35,6 +36,8 @@ def make_zip(c,data,digest,user):
  output=io.BytesIO();jid=data['project']['id'];documents=data['job_documents']
  materials=c.all('products',{'id':{'$in':list({r['product_id'] for r in data['requirements']})}},projection={'price':0},sort=[('id',1)])
  with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
+  import report_workshop
+  report_workshop.archive(z,c,jid)
   z.writestr('README.txt','Project deletion backup: '+reference(jid)+'\nOpen reports/project-report.html for the readable report. JSON files contain complete structured records. Documents retain their original bytes. Previously queued dispatch ZIPs are in dispatch-archives/.\nShared product, stock movement and accounting records remain in the ERP; deleting a project does not return issued stock or reverse posted accounts.\n')
   z.writestr('manifest.json',dump(dict(project_id=jid,snapshot_sha256=digest,exported_at=now(),exported_by=user['id'],counts={k:len(v) for k,v in data.items() if isinstance(v,list)})))
   for name,records in data.items():z.writestr(name+'.json',dump(records))

@@ -1,6 +1,6 @@
 import base64,datetime as dt,hashlib,io,json,os,unittest,zipfile
 from unittest.mock import patch
-import access,project_deletion as deletion,project_flow,seed,server
+import access,project_deletion as deletion,project_flow,seed,server,report_sheet
 from mongo_test_support import test_store,clean
 
 class ProjectDeletionTests(unittest.TestCase):
@@ -15,6 +15,9 @@ class ProjectDeletionTests(unittest.TestCase):
     rid=c.insert('requirements',job_id=jid,product_id=pid,quantity=2,issued=2)
     c.insert('material_issues',requirement_id=rid,quantity=2,issued_by=1)
     for name in ('qc_batches','qc_reports','qc_trace_lots','qc_imports','qc_audit'):c.insert(name,job_id=jid,status='Draft',reference='QC-TEST')
+    raw=report_sheet.blank()
+    wid=c.insert('report_workbooks',job_id=jid,name='Shared report',source=raw,model=report_sheet.read(raw),status='Draft',version=1)
+    c.insert('report_workbook_audit',job_id=jid,report_id=wid,action='Created draft')
     c.insert('project_requests',job_id=jid,status='Approved',review_notes='QC approved')
     c.insert('inspection_calls',job_id=jid,status='OK',report='Accepted')
     c.insert('project_messages',job_id=jid,body='Verified drawing',author='QC')
@@ -49,6 +52,8 @@ class ProjectDeletionTests(unittest.TestCase):
   self.assertEqual(archive.read('documents/3-TC.pdf'),payload)
   for path in ('qc_reports.json','qc_batches.json','qc_trace_lots.json','qc_audit.json','project.json','work_history.json','project_requests.json','project_messages.json','inspection_calls.json','material_issues.json','reports/project-report.html','reports/work_history.csv','dispatch-archives/1.zip'):self.assertIn(path,archive.namelist())
   self.assertEqual(json.loads(archive.read('project_requests.json'))[0]['review_notes'],'QC approved')
+  self.assertTrue(archive.read('report-workshop/1-original.xlsx').startswith(b'PK'))
+  self.assertTrue(archive.read('report-workshop/1-Draft.xlsx').startswith(b'PK'))
   self.assertFalse(any('..' in name for name in archive.namelist()))
   result=self.delete(meta,request_id='delete-once',return_state=True);self.assertTrue(result['ok']);self.assertNotIn(1,[j['id'] for j in result['state']['work_jobs']])
   self.assertTrue(self.delete(meta,request_id='delete-once')['duplicate'])

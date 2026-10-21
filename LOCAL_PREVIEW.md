@@ -45,6 +45,8 @@ Run `python -m unittest discover -v` and `python test_browser.py browser-project
 
 Employee profiles, HR, attendance and payroll configuration are described in [HR_OPERATIONS.md](HR_OPERATIONS.md). Preview users also complete their profile on first sign-in. Use invented test details in the isolated preview.
 
+Report Workshop is available at `/admin#workshop` and `/user#workshop`. See [REPORT_WORKSHOP.md](REPORT_WORKSHOP.md) for flexible Excel editing, saved drafts, QC review, export behaviour and limits. The global header expands to contain wrapped buttons at all screen widths.
+
 
 Reminders and attendance shortcuts
 

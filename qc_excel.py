@@ -75,6 +75,12 @@ def tracker(file):
 
 NUM=r'-?\d+(?:\.\d+)?'
 def limits(spec,tolerance):
+ if not text(tolerance):
+  embedded=re.fullmatch(r'(.*?)\(\s*((?:±|\+/-)\s*\d+(?:\.\d+)?)\s*\)',text(spec))
+  if embedded:spec,tolerance=embedded.groups()
+  else:
+   bound=re.fullmatch(r'('+NUM+r')\s*(MAX|MIN)',text(spec),re.I)
+   if bound:return [None,str(Decimal(bound[1]))] if bound[2].upper()=='MAX' else [str(Decimal(bound[1])),None]
  nominal=re.fullmatch(r'(?:[ØøRr]\s*)?('+NUM+r')(?:\s*\([^)]*\))?',text(spec))
  tol=re.fullmatch(r'\+/-\s*(\d+(?:\.\d+)?)',text(tolerance).lstrip('.').replace('±','+/-'))
  if not nominal or not tol:return None
@@ -86,7 +92,7 @@ def cell_result(characteristic,value):
  bounds=characteristic.get('limits')
  if bounds:
   if not re.fullmatch(NUM,s):return 'Review'
-  n=Decimal(s);return 'OK' if Decimal(bounds[0])<=n<=Decimal(bounds[1]) else 'Rework'
+  n=Decimal(s);return 'OK' if (bounds[0] is None or Decimal(bounds[0])<=n) and (bounds[1] is None or n<=Decimal(bounds[1])) else 'Rework'
  return characteristic.get('manual_result') if characteristic.get('manual_result') in ('OK','Rework') and characteristic.get('manual_reason') else 'Review'
 
 def results(report):
@@ -95,37 +101,106 @@ def results(report):
   for value in row['values']:counts[cell_result(row,value)]+=1
  return counts
 
-def inspection(file,blank=False):
+def inspection_quantity(ws):
+ """Read a labelled quantity without truncating decimals or executing formulas."""
+ candidates=[]
+ for cells in ws.iter_rows(min_row=1,max_row=5,max_col=min(ws.max_column,40)):
+  for cell in cells:
+   match=re.fullmatch(r'(?:QTY|QUANTITY)\b[\s.:#=-]*(.*)',text(cell.value),re.I)
+   if not match:continue
+   value=match[1].strip()
+   if not value:
+    # Quantity may be in a separate cell to the right of its label.
+    for col in range(cell.column+1,min(cell.column+3,ws.max_column)+1):
+     adjacent=text(ws.cell(cell.row,col).value)
+     if adjacent:
+      if re.fullmatch(r'\d+(?:\.\d+)?(?:\s*(?:NOS?\.?|PCS?\.?|PIECES?))?',adjacent,re.I):value=adjacent
+      break
+   if value:candidates.append((cell.coordinate,value))
+ if not candidates and isinstance(ws['J4'].value,(int,float)) and not isinstance(ws['J4'].value,bool):candidates=[('J4',text(ws['J4'].value))]
+ quantities=[]
+ for coordinate,value in candidates:
+  cleaned=re.sub(r'\s*(?:NOS?\.?|PCS?\.?|PIECES?)$','',value,flags=re.I).strip()
+  try:qty=integer(cleaned,100)
+  except ValueError:raise ValueError(f'{ws.title}!{coordinate}: quantity must be a whole number from 1 to 100 (for example QTY: 20).')
+  quantities.append(qty)
+ if len(set(quantities))>1:raise ValueError(ws.title+': conflicting quantity labels; confirm the inspection quantity.')
+ return quantities[0] if quantities else None
+
+def inspection(file,blank=False,quantity=None,po=None):
  wb=workbook(file)
  try:
   rows={};samples=set();header=None;warnings=[]
   for ws in wb:
    if 'INSPECTION' not in text(ws['C1'].value).upper():continue
    def label(cell,pattern):
-    match=re.search(pattern,text(ws[cell].value),re.I)
-    return match[1].strip() if match else ''
-   meta=dict(customer=label('A3',r'CUSTOMER\s*[:-]+\s*(.+)'),part_name=label('D3',r'Part Name[.\s:-]*(.+)'),drawing=label('A4',r'DRG\s*No\s*[:-]+\s*([\w.-]+)'),revision=label('C4',r'REV\s*[:-]+\s*(.+)'),po=label('D4',r'PO\s*No[.\s:-]*([\w.-]+)'),quantity=integer(label('J4',r'QTY\s*[:-]+\s*(\d+)'),100),inspection_date=date(label('J3',r'Date\s*[:-]+\s*(.+)')))
+    matches=[]
+    for row in ws.iter_rows(min_row=3,max_row=4,max_col=min(ws.max_column,40)):
+     for value in row:
+      match=re.match(pattern,text(value.value),re.I)
+      if match and match[1].strip():matches.append(match[1].strip())
+    if len(set(matches))>1:raise ValueError(ws.title+': conflicting header values near '+cell)
+    return matches[0] if matches else ''
+   try:source_quantity=inspection_quantity(ws)
+   except ValueError as error:
+    if not blank or quantity is None:raise
+    source_quantity=None;warnings.append(str(error)+' Blank import uses the selected batch quantity instead.')
+   target_quantity=integer(quantity,100) if blank and quantity is not None else source_quantity
+   if target_quantity is None:raise ValueError(ws.title+': inspection quantity is missing. Enter QTY: 20 in the workbook header, or use Blank format from a drawing batch to use its quantity.')
+   source_po=label('D4',r'PO\s*No[.\s:-]*(\w[\w.-]*)')
+   if blank and po is not None and not source_po:warnings.append(ws.title+': blank report uses the selected project PO because the workbook PO is empty.')
+   if blank and quantity is not None and source_quantity!=target_quantity:warnings.append(ws.title+': blank report uses the selected batch quantity ('+str(target_quantity)+'); workbook quantity is '+(str(source_quantity) if source_quantity else 'blank')+'.')
+   meta=dict(customer=label('A3',r'CUSTOMER\s*[:-]+\s*(.+)'),part_name=label('D3',r'Part Name[.\s:-]*(.+)'),drawing=label('A4',r'DRG\s*No\s*[:-]+\s*([\w.-]+)'),revision=label('C4',r'REV\s*[:-]+\s*(.+)'),po=str(po) if blank and po is not None else source_po,quantity=target_quantity,inspection_date=date(label('J3',r'Date\s*[:-]+\s*(.+)')))
    if not meta['drawing'] or not meta['po']:raise ValueError('Drawing and PO are required in every inspection sheet')
    if header and any(meta[k]!=header[k] for k in ('drawing','po','quantity','revision')):raise ValueError('Inspection sheets have conflicting drawing, PO, revision or quantity')
    header=header or meta
-   header_row=next((r for r in (7,8) if ws.cell(r,1).value in (None,'') and all(isinstance(ws.cell(r,c).value,(int,float)) and ws.cell(r,c).value==int(ws.cell(r,c).value) for c in range(5,10))),None)
+   def piece(value):
+    if value is None or text(value)=='':return None
+    try:return integer(value,100)
+    except ValueError:return None
+   first_col,last_col,remark_col=5,9,10
+   for cells in ws.iter_rows(min_row=5,max_row=7,max_col=min(ws.max_column,40)):
+    actual=next((v for v in cells if re.fullmatch(r'ACTUAL(?:\s+(?:SIZE|READINGS?|VALUES?))?',text(v.value),re.I)),None)
+    remark=next((v for v in cells if re.fullmatch(r'REMARKS?',text(v.value),re.I)),None)
+    if actual and remark and remark.column>actual.column:
+     first_col,last_col,remark_col=actual.column,remark.column-1,remark.column;break
+   sample_cols=range(first_col,last_col+1)
+   header_row=next((r for r in (7,8) if ws.cell(r,1).value in (None,'') and any(piece(ws.cell(r,c).value) for c in sample_cols) and all(not text(ws.cell(r,c).value) or piece(ws.cell(r,c).value) for c in sample_cols)),None)
+   if header_row is None and blank:
+    header_row=next((r-1 for r in range(7,13) if piece(ws.cell(r,1).value) and text(ws.cell(r,3).value)),None)
    if header_row is None:raise ValueError('Cannot locate piece numbers in '+ws.title)
    columns=[]
-   for col in range(5,10):
+   numbered=[piece(ws.cell(header_row,c).value) for c in sample_cols if piece(ws.cell(header_row,c).value)]
+   if blank and source_quantity and numbered and max(numbered)>source_quantity:warnings.append(ws.title+': piece numbering exceeds the workbook quantity. Blank import discards the source readings; confirm the batch quantity before inspection.')
+   for col in (() if blank else sample_cols):
+    if not text(ws.cell(header_row,col).value):
+     if any(piece(ws.cell(r,1).value) and text(ws.cell(r,col).value) for r in range(header_row+1,min(ws.max_row,150)+1)):raise ValueError(ws.title+': measurements have no piece number in column '+ws.cell(header_row,col).column_letter+'. Add the piece number before historical import.')
+     continue
     sample=integer(ws.cell(header_row,col).value,100)
-    if sample in samples or sample>meta['quantity']:raise ValueError('Duplicate or invalid piece number in '+ws.title)
+    if sample in samples or sample>meta['quantity']:raise ValueError(ws.title+': piece '+str(sample)+' is duplicated or exceeds header quantity '+str(meta['quantity'])+'. Correct the workbook before importing historical readings.')
     samples.add(sample);columns.append((col,sample))
+   reference='';section='';sheet_rows=set()
    for r in range(header_row+1,min(ws.max_row,150)+1):
     sr=ws.cell(r,1).value
-    if not isinstance(sr,(int,float)) or sr!=int(sr):continue
-    key=str(int(sr));spec=text(ws.cell(r,3).value);tolerance=text(ws.cell(r,4).value)
-    row=rows.setdefault(key,dict(number=key,description=text(ws.cell(r,2).value),specified=spec,tolerance=tolerance,limits=limits(spec,tolerance),values=['']*meta['quantity'],source_remarks=[],manual_result='',manual_reason=''))
+    try:key=str(integer(sr,10000))
+    except ValueError:
+     context=text(ws.cell(r,2).value)
+     if sr is None and context and text(ws.cell(r,3).value) in ('',context):
+      if context.lower().startswith('reference'):reference=context;section=''
+      else:section=context
+     continue
+    if key in sheet_rows:raise ValueError(ws.title+': duplicate characteristic '+key)
+    sheet_rows.add(key);spec=text(ws.cell(r,3).value);tolerance=text(ws.cell(r,4).value) if first_col>4 else ''
+    description=' · '.join(v for v in (reference,section,text(ws.cell(r,2).value)) if v)
+    row=rows.setdefault(key,dict(number=key,description=description,specified=spec,tolerance=tolerance,limits=limits(spec,tolerance),values=['']*meta['quantity'],source_remarks=[],manual_result='',manual_reason=''))
     if row['specified']!=spec or row['tolerance']!=tolerance:raise ValueError('Specification differs between sheets at characteristic '+key)
     for col,sample in columns:row['values'][sample-1]='' if blank else text(ws.cell(r,col).value)
-    remark=text(ws.cell(r,10).value)
+    remark=text(ws.cell(r,remark_col).value)
     if remark and remark not in row['source_remarks']:row['source_remarks'].append(remark)
   if not header or not rows or len(rows)>120:raise ValueError('No supported inspection matrix found')
-  if samples!=set(range(1,header['quantity']+1)):warnings.append('Some piece columns are absent; missing measurements remain empty.')
+  filename=str(file.get('name','')).rsplit('.',1)[0]
+  if re.fullmatch(r'\d+',filename) and filename!=header['drawing']:warnings.append('Filename '+filename+' differs from drawing '+header['drawing']+' in the workbook header. Verify the drawing reference; the header is used for matching.')
+  if not blank and samples!=set(range(1,header['quantity']+1)):warnings.append('Some piece columns are absent; missing measurements remain empty.')
   report={**header,'characteristics':[rows[k] for k in sorted(rows,key=int)],'warnings':warnings}
   report['summary']=results(report)
   if report['summary']['Rework']:warnings.append(str(report['summary']['Rework'])+' measurements exceed the stated tolerance, regardless of the original OK remark.')

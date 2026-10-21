@@ -43,7 +43,15 @@ def schedule(c,d,user):
  log(c,b,user,'QC dispatch schedule updated',m.text(d,'notes'))
 def preview(c,d,user):
  access.require(user,('QC',) if d.get('kind')=='tracker' else access.ROLES)
- return x.tracker(d.get('file')) if d.get('kind')=='tracker' else x.inspection(d.get('file'),blank=d.get('mode')!='historical')
+ if d.get('kind')=='tracker':return x.tracker(d.get('file'))
+ blank=d.get('mode')!='historical';context={}
+ if blank and d.get('batch_id'):
+  b,j=batch(c,d,user);context=dict(quantity=b['quantity'],po=b['po'])
+ parsed=x.inspection(d.get('file'),blank=blank,**context)
+ if d.get('batch_id'):
+  b,j=batch(c,d,user)
+  if parsed['report']['drawing']!=b['drawing']:parsed['warnings'].append('Workbook drawing '+parsed['report']['drawing']+' does not match selected batch '+b['drawing']+'. Choose the matching batch or correct the workbook header before importing.')
+ return parsed
 def import_tracker(c,d,user):
  j=project(c,d.get('job_id'),user,True);parsed=x.tracker(d.get('file'));raw=x.file_bytes(d['file']);digest=hashlib.sha256(raw).hexdigest()
  if c.one('qc_imports',{'job_id':j['id'],'sha256':digest}):raise ValueError('This workbook is already imported into this project')
@@ -115,8 +123,8 @@ def import_report(c,d,user):
   if not source:raise ValueError('Inspection format not found')
   project(c,source['job_id'],user);parsed=copy.deepcopy(source);mode='blank';did=None
  else:
-  parsed=x.inspection(d.get('file'),blank=mode=='blank')['report'];did=m.upload(c,j['id'],user,'Supporting',d['file'])
- if parsed['drawing']!=b['drawing']:raise ValueError('Inspection drawing number does not match this batch')
+  parsed=x.inspection(d.get('file'),blank=mode=='blank',quantity=b['quantity'] if mode=='blank' else None,po=b['po'] if mode=='blank' else None)['report'];did=m.upload(c,j['id'],user,'Supporting',d['file'])
+ if parsed['drawing']!=b['drawing']:raise ValueError('Workbook drawing '+parsed['drawing']+' does not match batch '+b['drawing']+'. Choose the matching batch or correct the workbook drawing header.')
  if mode=='historical' and (parsed['po']!=b['po'] or parsed['quantity']!=b['quantity']):raise ValueError('Historical report PO and quantity must match the batch')
  chars=copy.deepcopy(parsed['characteristics'])
  if mode=='blank':
