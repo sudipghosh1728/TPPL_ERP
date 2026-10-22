@@ -2,7 +2,7 @@ import base64,copy,io,unittest,zipfile
 from unittest.mock import patch
 from openpyxl import Workbook,load_workbook
 from openpyxl.styles import Font,PatternFill
-import access,seed,server,report_sheet as sheet,report_workshop as reports,project_flow as pf,project_deletion
+import access,seed,server,report_sheet as sheet,report_workshop as reports,project_flow as pf,project_deletion,qc_ops as qc
 from mongo_test_support import test_store,clean
 
 def fixture():
@@ -67,5 +67,46 @@ class WorkshopWorkflowTests(unittest.TestCase):
   with zipfile.ZipFile(io.BytesIO(packet)) as z:self.assertEqual(z.read(f'report-workshop/{rid}-original.xlsx'),self.row(rid)['source']);self.assertIn('report_workbooks',queries)
   self.store.run(lambda c:c.update('work_jobs',{'id':jid},{'stage':'Completed'}))
   with self.assertRaisesRegex(ValueError,'read-only'):self.call('Store','duplicate',id=rid,version=3)
+
+ def test_upload_any_layout_preserves_bytes_roles_revisions_and_archive(self):
+  for role in access.ROLES:
+   raw=b'%PDF-1.4\nCompleted external report for '+role.encode()
+   rid=self.call(role,'upload',name='Paint report',category='Painting',file={'name':'paint.pdf','content':base64.b64encode(raw).decode()})['id']
+   row=self.row(rid);self.assertEqual(row['mode'],'uploaded');self.assertNotIn('model',row)
+   self.assertEqual(self.store.run(lambda c:reports.export(c,rid,self.users[role]))['_download']['content'],raw)
+   if role not in ('Admin','QC'):
+    with self.assertRaises(access.AccessError):self.call(role,'approve',id=rid,version=1,notes='Invalid reviewer')
+   self.call('QC','approve',id=rid,version=1,notes='Downloaded and reviewed')
+   revised=self.call(role,'upload',id=rid,version=2,name='Paint report revision',category='Painting',file={'name':'revised.xlsx','content':base64.b64encode(b'Any worksheet layout; no parsing').decode()})['id']
+   self.assertEqual(self.row(revised)['status'],'Draft');self.assertEqual(self.row(revised)['revision_of'],rid);self.assertEqual(self.row(rid)['source'],raw);self.assertEqual(self.row(rid)['status'],'Approved')
+   with self.assertRaises(ValueError):self.call(role,'save',id=revised,version=1,model={})
+  for name,raw in [('unsafe.exe',b'bad'),('empty.pdf',b''),('large.pdf',b'x'*(3*1024*1024+1))]:
+   with self.assertRaises(ValueError):self.call('Store','upload',name='Invalid',file={'name':name,'content':base64.b64encode(raw).decode()})
+
+ def test_batch_upload_review_evidence_and_zip(self):
+  admin=self.users['Admin'];reviewer=self.users['QC'];author=self.users['Store']
+  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='Upload project',customer='Test',po_number='PO-U',quantity=1,due='2026-12-01',route='Fabrication only',file=dict(name='po.txt',content='UE8=')),admin))
+  jid=self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0]['id'])
+  self.store.run(lambda c:qc.create_batch(c,dict(job_id=jid,drawing='ANY-01',thickness='20mm',quantity=1,planned_date='2026-12-01'),author))
+  def batch():return self.store.run(lambda c:c.all('qc_batches',{'job_id':jid})[0])
+  file={'name':'final-report.pdf','content':base64.b64encode(b'%PDF-1.4 arbitrary finished report').decode()}
+  b=batch();rid=self.call('Store','upload',name='Inspection',category='Inspection',job_id=jid,batch_id=b['id'],batch_version=b['version'],file=file)['id']
+  b=batch();self.assertEqual(b['current_upload'],rid)
+  with self.assertRaisesRegex(ValueError,'traceability'):self.call('QC','approve',id=rid,version=1,batch_version=b['version'],notes='Incomplete evidence')
+  self.store.run(lambda c:qc.trace(c,dict(batch_id=b['id'],version=b['version'],new_lot=dict(heat_no='H1',plate_no='P1',quantity=1)),reviewer));b=batch()
+  lot=self.store.run(lambda c:c.all('qc_trace_lots',{'job_id':jid})[0])
+  self.store.run(lambda c:qc.trace(c,dict(batch_id=b['id'],version=b['version'],allocations=[dict(lot_id=lot['id'],quantity=1)]),reviewer));b=batch()
+  self.store.run(lambda c:qc.document(c,dict(batch_id=b['id'],version=b['version'],kind='Drawing',file={'name':'drawing.pdf','content':'UERG'}),reviewer));b=batch()
+  self.call('QC','approve',id=rid,version=1,batch_version=b['version'],notes='Checked uploaded report against drawing and heat trace')
+  b=batch();self.assertEqual(self.store.run(lambda c:qc.release_errors(c,b,check_steps=False)),[])
+  packet=self.store.run(lambda c:qc.packet(c,b['id'],author))['_download']['content']
+  with zipfile.ZipFile(io.BytesIO(packet)) as z:self.assertEqual(z.read(f'uploaded-reports/{rid}-Approved-final-report.pdf'),base64.b64decode(file['content']))
+  old_version=b['version'];self.store.run(lambda c:qc.schedule(c,dict(batch_id=b['id'],version=b['version'],planned_date='2026-12-02',notes='Changed date'),reviewer))
+  with self.assertRaisesRegex(ValueError,'changed'):self.call('Store','upload',id=rid,version=2,name='Revision',category='Inspection',batch_version=old_version,file=file)
+  b=batch();revision=self.call('Store','upload',id=rid,version=2,name='Revision',category='Inspection',batch_version=b['version'],file=file)['id'];b=batch()
+  self.assertEqual(b['current_upload'],revision);self.assertIn('Approve the current inspection report',self.store.run(lambda c:qc.release_errors(c,b,check_steps=False)))
+  self.assertEqual(self.row(rid)['status'],'Approved')
+  self.store.run(lambda c:c.update('work_jobs',{'id':jid},{'stage':'Completed'}))
+  with self.assertRaisesRegex(ValueError,'read-only'):self.call('Store','upload',id=revision,version=1,name='Invalid revision',file=file)
 
 if __name__=='__main__':unittest.main()

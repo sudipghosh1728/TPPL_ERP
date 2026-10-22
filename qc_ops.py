@@ -131,7 +131,7 @@ def import_report(c,d,user):
   for r in chars:r.update(values=['']*b['quantity'],manual_result='',manual_reason='')
  rid=c.insert('qc_reports',job_id=j['id'],batch_id=b['id'],drawing=b['drawing'],po=b['po'],customer=b['customer'],part_name=parsed['part_name'],revision=parsed['revision'],quantity=b['quantity'],inspection_date=today() if mode=='blank' else parsed['inspection_date'],status='Draft',version=1,characteristics=chars,inspector=user['name'],source_document_id=did,source_mode=mode,warnings=[] if mode=='blank' else parsed.get('warnings',[]),created_at=m.now(),review_notes='')
  c.update('qc_reports',{'id':rid},{'reference':f'QC-{rid:05}', 'summary':x.results({'characteristics':chars})})
- c.update('qc_batches',{'id':b['id']},{'current_report':rid});invalidate(c,b,j);log(c,b,user,'Inspection draft created',f'QC-{rid:05} · '+mode)
+ c.update('qc_batches',{'id':b['id']},{'current_report':rid,'current_upload':None});invalidate(c,b,j);log(c,b,user,'Inspection draft created',f'QC-{rid:05} · '+mode)
 def save_report(c,d,user):
  b,j=batch(c,d,user,True,author=True);r=c.one('qc_reports',{'id':b['current_report'],'batch_id':b['id']})
  if not r or r['status']!='Draft':raise ValueError('Create a new draft revision before changing an approved report')
@@ -173,15 +173,21 @@ def revise_report(c,d,user):
  values={k:copy.deepcopy(r.get(k,[] if k in ('characteristics','warnings') else '')) for k in fields}
  rid=c.insert('qc_reports',**values,job_id=j['id'],batch_id=b['id'],status='Draft',version=1,inspection_date=today(),inspector=user['name'],created_at=m.now(),review_notes=m.text(d,'notes'),revises=r['id'],summary=x.results(r))
  c.update('qc_reports',{'id':rid},{'reference':f'QC-{rid:05}'})
- c.update('qc_batches',{'id':b['id']},{'current_report':rid});invalidate(c,b,j);log(c,b,user,'Inspection revision created',r['reference']+' → '+f'QC-{rid:05}')
+ c.update('qc_batches',{'id':b['id']},{'current_report':rid,'current_upload':None});invalidate(c,b,j);log(c,b,user,'Inspection revision created',r['reference']+' → '+f'QC-{rid:05}')
 def traces(c,b):
  out=[]
  for a in b.get('allocations',[]):
   lot=c.one('qc_trace_lots',{'id':a['lot_id'],'job_id':b['job_id']})
   if lot:out.append({**lot,'allocated':a['quantity']})
  return out
+def current_report(c,b):
+ if b.get('current_upload'):
+  rows=c.all('report_workbooks',{'id':b['current_upload'],'batch_id':b['id'],'job_id':b['job_id']},projection={'source':0,'model':0})
+  return {**rows[0],'reference':'UPLOAD-'+str(rows[0]['id'])} if rows else None
+ return c.one('qc_reports',{'id':b.get('current_report')}) if b.get('current_report') else None
+
 def release_errors(c,b,check_steps=True,include_packing=True):
- errors=[];report=c.one('qc_reports',{'id':b.get('current_report')}) if b.get('current_report') else None
+ errors=[];report=current_report(c,b)
  if not report or report['status']!='Approved':errors.append('Approve the current inspection report')
  elif report.get('snapshot_batch',{}).get('evidence_version',0)!=b.get('evidence_version',0):errors.append('Evidence changed: create and approve an inspection revision')
  if check_steps and any(b['steps'][s]['status'] not in ('Done','NA') for s in x.STEPS if include_packing or s!='Packing'):errors.append('Complete all process / packing stages' if include_packing else 'Complete process stages through Final QC')
@@ -208,19 +214,18 @@ def dispatch(c,d,user):
 def detail(c,bid,user):
  b,j=batch(c,{'batch_id':bid},user)
  reports=c.all('qc_reports',{'batch_id':b['id']},sort=[('id',-1)],projection={'id':1,'reference':1,'revision':1,'status':1,'inspector':1,'approved_by':1})
- if b.get('current_report'):
-  current=c.one('qc_reports',{'id':b['current_report'],'batch_id':b['id']})
-  reports=[current if r['id']==b['current_report'] else r for r in reports]
  lots=c.all('qc_trace_lots',{'job_id':j['id']})
  others=c.all('qc_batches',{'job_id':j['id'],'id':{'$ne':b['id']}})
  for lot in lots:lot['available']=lot['quantity']-sum(a['quantity'] for other in others for a in other.get('allocations',[]) if a['lot_id']==lot['id'])
- return dict(batch=b,project=j,reports=reports,trace_lots=lots,documents=c.all('job_documents',{'job_id':j['id']},projection={'content':0}),history=c.all('qc_audit',{'batch_id':b['id']},sort=[('id',-1)],projection={'changes':0}),release_errors=release_errors(c,b))
+ uploads=c.all('report_workbooks',{'batch_id':b['id'],'job_id':j['id'],'mode':'uploaded'},projection={'source':0,'model':0},sort=[('id',-1)])
+ return dict(batch=b,project=j,reports=reports,uploads=uploads,trace_lots=lots,documents=c.all('job_documents',{'job_id':j['id']},projection={'content':0}),history=c.all('qc_audit',{'batch_id':b['id']},sort=[('id',-1)],projection={'changes':0}),release_errors=release_errors(c,b))
 def state(c,data,user):
  ids=[j['id'] for j in data['work_jobs']]
  data['qc_batches']=c.all('qc_batches',{'job_id':{'$in':ids}},sort=[('id',-1)])
  reports={r['id']:r for r in c.all('qc_reports',{'job_id':{'$in':ids}},projection={'id':1,'status':1,'summary':1})}
+ uploads={r['id']:r for r in c.all('report_workbooks',{'job_id':{'$in':ids},'mode':'uploaded'},projection={'id':1,'status':1})}
  for b in data['qc_batches']:
-  r=reports.get(b.get('current_report'),{});b['inspection_status']=r.get('status','Not started');b['inspection_summary']=r.get('summary',{})
+  r=uploads.get(b.get('current_upload'),{}) if b.get('current_upload') else reports.get(b.get('current_report'),{});b['inspection_status']=r.get('status','Not started');b['inspection_summary']=r.get('summary',{})
  data['qc_formats']=c.all('qc_reports',{'job_id':{'$in':ids}},projection={'id':1,'drawing':1,'revision':1,'reference':1,'part_name':1,'job_id':1},sort=[('id',-1)])
 def gate(c,j,dispatching=False):
  for b in c.all('qc_batches',{'job_id':j['id']}):
@@ -235,12 +240,14 @@ def export(c,rid,user,kind):
  content=(x.export_pdf if kind=='pdf' else x.export_xlsx)(r,r.get('snapshot_batch',b),r.get('snapshot_trace',traces(c,b)),r.get('snapshot_company',company))
  return {'_download':dict(name=r['reference']+'-'+r['drawing']+'.'+kind,content=content)}
 def packet(c,bid,user):
+ import report_workshop
  b,j=batch(c,{'batch_id':bid},user);buffer=io.BytesIO()
  reports=c.all('qc_reports',{'batch_id':b['id']});document_ids=set(b['document_ids'])
  document_ids.update(r['source_document_id'] for r in reports if r.get('source_document_id'))
  source=c.one('qc_imports',{'id':b['import_id'],'job_id':j['id']}) if b.get('import_id') else None
  if source:document_ids.add(source['document_id'])
  with zipfile.ZipFile(buffer,'w',zipfile.ZIP_DEFLATED) as z:
+  report_workshop.archive(z,c,j['id'],batch_id=b['id'])
   z.writestr('batch-and-process.json',json.dumps(b,indent=2,default=str));z.writestr('traceability.json',json.dumps(traces(c,b),indent=2,default=str));z.writestr('history.json',json.dumps(c.all('qc_audit',{'batch_id':b['id']}),indent=2,default=str))
   for r in reports:
    z.writestr(r['reference']+'.json',json.dumps(r,indent=2,default=str))
@@ -258,7 +265,7 @@ def tracker_export(c,jid,user):
  j=project(c,jid,user);batches=c.all('qc_batches',{'job_id':j['id']},sort=[('planned_date',1),('id',1)]);wb=Workbook();ws=wb.active;ws.title='PROCESS'
  ws.append(['PO','Drawing No','Thickness',*x.STEPS,'Qty','Dispatch Date','Actual Dispatch Date','Drawing','Numbering Ref','Inspection status','Report','Batch ID'])
  for b in batches:
-  r=c.one('qc_reports',{'id':b.get('current_report')}) if b.get('current_report') else None
+  r=current_report(c,b)
   ws.append([b['po'],b['drawing'],b['thickness'],*[b['steps'][s]['status']+' ('+str(b['steps'][s]['quantity'])+')' for s in x.STEPS],b['quantity'],b['planned_date'],b['actual_date'],b['drawing_ref'],b['numbering_ref'],r['status'] if r else 'Not started',r['reference'] if r else '',b['id']])
  ws=wb.create_sheet('Allocated traceability');ws.append(['Batch ID','Drawing','Dispatch date','Thickness','Heat No','Plate No','AI No','Allocated quantity'])
  for b in batches:
