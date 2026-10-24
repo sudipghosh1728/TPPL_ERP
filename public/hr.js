@@ -2,7 +2,7 @@
 let attendanceTimer=null,attendanceBusy=false,hrPlantFilter="",attendanceShift="Regular",attendancePlant="";
 const employeePlantName=id=>state.plants.find(p=>p.id===id)?.name||"Plant not selected";
 const hrButton=(label,action,id='',secondary=true)=>`<button type="button" class="${secondary?'secondary':'primary'}" data-hr="${action}" data-id="${id}">${label}</button>`;
-const isHR=()=>['Admin','HR'].includes(sessionUser.role);
+const isHR=()=>['Admin','Purchase','HR'].includes(sessionUser.role);
 const employeeName=id=>state.employee_directory.find(p=>p.id===id)?.name||state.project_assignees?.[String(id)]||(id===sessionUser.id?sessionUser.name:'Employee #'+id);
 const hrForm=(title,body,path,transform=async d=>d)=>workForm(title,body,'hr/'+path,transform);
 const employeeOptions=()=>state.employee_directory.map(p=>[p.id,p.name+' · '+p.department]);

@@ -3,7 +3,7 @@ import hashlib, hmac, secrets, time
 from http.cookies import SimpleCookie
 from storage import identifier
 
-ROLES=('Admin','Design','Machining','Fabrication','Store','Accounts','QC','Maintenance','HR')
+ROLES=('Admin','Purchase','Design','Machining','Fabrication','Store','Accounts','QC','Maintenance','HR')
 PERMISSIONS={
     'stock-correction':('Store',),
     'catalog-confirm':('Store',), 'contra':('Accounts',), 'financial-notes':('Accounts',), 'bank-reconcile':('Accounts',), 'accounts':('Accounts',), 'settlements':('Accounts',), 'journals':('Accounts',),
@@ -44,7 +44,7 @@ def current(c,cookie):
 
 def require(user,roles=()):
     if not user:raise AccessError('Please sign in to continue',401)
-    if user['role']!='Admin' and user['role'] not in roles:raise AccessError('Your department does not have access to this action')
+    if user['role'] not in ('Admin','Purchase') and user['role'] not in roles:raise AccessError('Your department does not have access to this action')
 
 def create_user(c,d):
     username=str(d.get('username','')).strip().lower()
@@ -78,7 +78,7 @@ def manage_user(c,d,actor):
     if not u:raise ValueError('User not found')
     active=d.get('active',u['active']);role=d.get('role',u['role'])
     if active not in (0,1) or role not in ROLES:raise ValueError('Invalid user status or role')
-    if u['id']==actor['id'] and (not active or role!='Admin'):raise ValueError('You cannot disable or demote your own Admin account')
+    if u['id']==actor['id'] and (not active or role not in ('Admin','Purchase')):raise ValueError('You cannot disable or demote your own Admin account')
     name=str(d.get('name',u['name'])).strip()
     if not name or len(name)>100:raise ValueError('Enter a display name')
     c.update('users',{'id':u['id']},{'name':name,'role':role,'active':active})
@@ -87,8 +87,8 @@ def manage_user(c,d,actor):
 
 def filter_state(c,data,user):
     role=user['role'];data['user']=user
-    data['users']=[public(u) for u in c.all('users',sort=[('role',1),('name',1)])] if role=='Admin' else []
-    if role not in ('Admin','Accounts'):
+    data['users']=[public(u) for u in c.all('users',sort=[('role',1),('name',1)])] if role in ('Admin','Purchase') else []
+    if role not in ('Admin','Purchase','Accounts'):
         for key in ('orders','accounts','journals','journal_lines','invoice_items','settlements','activity'):
             data[key]=[]
         data['settings']={'company':data['settings']['company']}
@@ -97,5 +97,5 @@ def filter_state(c,data,user):
             for p in data['purchases']:
                 for key in ('unit_cost','account_id','total_paise','paid_paise','outstanding_paise','credited_paise'):p.pop(key,None)
         else:data['purchases']=[]
-    if role not in ('Admin',):data['jobs']=[]
-    if role not in ('Admin','Store'):data['movements']=[]
+    if role not in ('Admin','Purchase',):data['jobs']=[]
+    if role not in ('Admin','Purchase','Store'):data['movements']=[]

@@ -57,7 +57,7 @@ class QCWorkflowTests(unittest.TestCase):
  def setUp(self):
   self.store=test_store();self.store.prepare();self.store.run(lambda c:seed.initialize(c,demo=True));self.old=server.STORE;server.STORE=self.store
   self.users={role:dict(id=i+1,name=role+' employee',role=role,username=role.lower(),active=1) for i,role in enumerate(access.ROLES)}
-  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='QC project',customer='Test customer',po_number='PO-QC',quantity=20,due='2026-12-01',route='Fabrication only',file=dict(name='po.txt',content='UE8=')),self.users['Admin']))
+  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='QC project',customer='Test customer',po_number='PO-QC',quantity=200,due='2026-12-01',route='Fabrication only',file=dict(name='po.txt',content='UE8=')),self.users['Admin']))
   self.jid=self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0]['id'])
  def tearDown(self):server.STORE=self.old;clean(self.store)
  def rows(self,name):return self.store.run(lambda c:c.all(name,{'job_id':self.jid},sort=[('id',1)]))
@@ -66,17 +66,17 @@ class QCWorkflowTests(unittest.TestCase):
   with patch('server.access.current',return_value=self.users[role]):return self.store.run(lambda c:server.write_response(c,'/api/qc/'+path,d,None,'test'))
  def test_every_user_can_prepare_reports_but_only_qc_admin_approve(self):
   for role in access.ROLES:
-   self.call(role,'create',job_id=self.jid,drawing='TEST-01',thickness='20mm',quantity=10,planned_date='2026-12-01')
+   self.call('Design','create',job_id=self.jid,drawing='TEST-01',thickness='20mm',quantity=10,planned_date='2026-12-01')
    b=self.rows('qc_batches')[-1];self.call(role,'import-report',batch_id=b['id'],file=workbook_file(),mode='historical');r=self.rows('qc_reports')[-1]
    for char in r['characteristics']:
     if not char['limits']:char.update(manual_result='OK',manual_reason='Visual check against drawing')
    self.call(role,'save-report',batch_id=b['id'],report_version=r['version'],inspection_date='2026-09-01',characteristics=r['characteristics'],review_notes='Prepared by '+role)
-   if role not in ('QC','Admin'):
+   if role not in ('QC','Admin','Purchase'):
     with self.assertRaises(access.AccessError):self.call(role,'approve-report',batch_id=b['id'],report_version=2,notes='Not authorised')
    pdf=self.store.run(lambda c:q.export(c,r['id'],self.users[role],'pdf'))['_download']['content'];self.assertTrue(pdf.startswith(b'%PDF'))
   self.assertEqual(len(self.rows('qc_reports')),len(access.ROLES))
  def test_stale_edits_evidence_changes_and_blank_reuse(self):
-  self.call('HR','create',job_id=self.jid,drawing='TEST-01',thickness='20mm',quantity=10,planned_date='2026-12-01')
+  self.call('Design','create',job_id=self.jid,drawing='TEST-01',thickness='20mm',quantity=10,planned_date='2026-12-01')
   b=self.rows('qc_batches')[0];self.call('HR','import-report',batch_id=b['id'],file=workbook_file(),mode='historical')
   r=self.rows('qc_reports')[0];chars=copy.deepcopy(r['characteristics']);chars[1].update(manual_result='OK',manual_reason='Visual inspection')
   chars[0]['limits']=['0','1000']
@@ -98,9 +98,9 @@ class QCWorkflowTests(unittest.TestCase):
   blank=self.rows('qc_reports')[-1];self.assertTrue(all(not any(v for v in row['values']) and not row['manual_result'] for row in blank['characteristics']))
  def test_trace_limits_release_snapshots_and_dispatch(self):
   source=tracker_file()
-  self.call('QC','import-tracker',job_id=self.jid,file=source,request_id='same-import')
-  self.call('QC','import-tracker',job_id=self.jid,file=source,request_id='same-import');self.assertEqual(len(self.rows('qc_batches')),2)
-  with self.assertRaises(ValueError):self.call('QC','import-tracker',job_id=self.jid,file=source)
+  self.call('Design','import-tracker',job_id=self.jid,file=source,request_id='same-import')
+  self.call('Design','import-tracker',job_id=self.jid,file=source,request_id='same-import');self.assertEqual(len(self.rows('qc_batches')),2)
+  with self.assertRaises(ValueError):self.call('Design','import-tracker',job_id=self.jid,file=source)
   b,other=self.rows('qc_batches');lots=self.rows('qc_trace_lots');self.assertTrue(all(s['status']=='Pending' for s in b['steps'].values()));self.assertEqual(b['actual_date'],'')
   with self.assertRaises(ValueError):self.store.run(lambda c:q.gate(c,c.one('work_jobs',{'id':self.jid})))
   self.call('QC','trace',batch_id=b['id'],allocations=[{'lot_id':lots[0]['id'],'quantity':10}])
@@ -117,13 +117,13 @@ class QCWorkflowTests(unittest.TestCase):
   workbook=load_workbook(io.BytesIO(before));self.assertEqual(workbook.worksheets[0]['F2'].value,'00');self.assertIn('Traceability',workbook.sheetnames)
   with self.assertRaises(ValueError):self.call('Store','save-report',batch_id=b['id'],report_version=4,inspection_date='2026-09-01',characteristics=chars)
   steps={s:dict(status='Done',quantity=10,notes='Verified') for s in x.STEPS}
-  with self.assertRaises(ValueError):self.call('QC','steps',batch_id=b['id'],steps=steps,notes='Packing cannot precede final inspection')
+  with self.assertRaises(ValueError):self.call('Admin','steps',batch_id=b['id'],steps=steps,notes='Packing cannot precede final inspection')
   steps['Packing']=dict(status='Pending',quantity=0,notes='Awaiting final inspection')
-  self.call('QC','steps',batch_id=b['id'],steps=steps,notes='Ready for project final inspection')
+  self.call('Admin','steps',batch_id=b['id'],steps=steps,notes='Ready for project final inspection')
   self.assertEqual(self.store.run(lambda c:q.release_errors(c,c.one('qc_batches',{'id':b['id']}),include_packing=False)),[])
   self.store.run(lambda c:c.update('work_jobs',{'id':self.jid},{'stage':'Packing & dispatch','final_inspection':True}))
   steps['Packing']=dict(status='Done',quantity=10,notes='Verified')
-  self.call('QC','steps',batch_id=b['id'],steps=steps,notes='Process and packing complete')
+  self.call('Admin','steps',batch_id=b['id'],steps=steps,notes='Process and packing complete')
   self.assertEqual(self.store.run(lambda c:q.release_errors(c,c.one('qc_batches',{'id':b['id']}))),[])
   self.call('QC','document',batch_id=b['id'],kind='EWAY challan',file=dict(name='eway.pdf',content='VGVzdA=='))
   after=self.store.run(lambda c:q.export(c,r['id'],self.users['Store'],'xlsx'))['_download']['content']

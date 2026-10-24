@@ -89,7 +89,7 @@ def assignment(c,d,user):
     p.record(c,j,user,'Assigned '+department+' to '+u['name']);p.notify(c,j,user,'Project assignment: '+u['name'],(department,'Admin'))
 
 def assigned(c,j,user):
-    if user['role']=='Admin': return
+    if user['role'] in ('Admin','Purchase'): return
     uid=j.get('assignments',{}).get(user['role'])
     if not uid or uid==user['id']: return
     if user['role']=='QC' and unavailable(c,uid): return
@@ -209,13 +209,13 @@ def payroll(c,d,user):
 
 def state(c,data,user):
     import project_flow
-    admin=user['role'] in ('Admin','HR');uid=user['id'];q={} if admin else {'user_id':uid}
+    admin=user['role'] in ('Admin','Purchase','HR');uid=user['id'];q={} if admin else {'user_id':uid}
     data['employee_profile']=c.one('employee_profiles',{'user_id':uid})
     data['hr_profiles']=c.all('employee_profiles',projection={'photo':0}) if admin else []
     plant_ids={p['id'] for p in project_flow.PLANTS}
     for profile in [data['employee_profile'],*data['hr_profiles']]:
         if profile:profile['complete']=bool(profile.get('complete') and profile.get('plant_id') in plant_ids)
-    directory_allowed=user['role'] in ('Admin','HR','Design')
+    directory_allowed=user['role'] in ('Admin','Purchase','HR','Design')
     profile_plants={p['user_id']:p.get('plant_id','') for p in c.all('employee_profiles',projection={'user_id':1,'plant_id':1})} if directory_allowed else {}
     data['employee_directory']=[dict(id=u['id'],name=u['name'],department=u['role'],plant_id=profile_plants.get(u['id'],'') if profile_plants.get(u['id']) in plant_ids else '',active=u['active'],on_extended_leave=unavailable(c,u['id'])) for u in c.all('users',{'active':1})] if directory_allowed else []
     ids={uid for j in data.get('work_jobs',[]) for uid in j.get('assignments',{}).values()}
@@ -234,11 +234,14 @@ def alerts(c,jobs,user):
     owners={'Design review':'Design','QC approval':'QC','QC inspection':'QC','Store issue':'Store','Fabrication execution':'Fabrication','Machining execution':'Machining','Packing & dispatch':'Fabrication','Admin review':'Admin','Accounts review':'Accounts','Maintenance review':'Maintenance','HR review':'HR'}
     read={r['key'] for r in c.all('alert_reads',{'user_id':user['id']})}
     result=[]
+    batches=c.all('qc_batches',{'job_id':{'$in':[j['id'] for j in jobs if j.get('dispatch_lots')]}}) if any(j.get('dispatch_lots') for j in jobs) else []
     for j in jobs:
         due=j.get('revised_due') or j.get('due')
+        pending_lots=[l for l in j.get('dispatch_lots',[]) if sum(b['quantity'] for b in batches if b.get('lot_id')==l['id'] and b.get('actual_date'))<l['quantity']]
+        if pending_lots:due=min(l['date'] for l in pending_lots)
         if not manufacturing.visible(j,user) or j.get('stage')=='Completed' or not due:continue
         roles={'Design',owners.get(j['stage'])}
-        if user['role']!='Admin':
+        if user['role'] not in ('Admin','Purchase'):
             if user['role'] not in roles:continue
             uid=j.get('assignments',{}).get(user['role'])
             if uid and uid!=user['id'] and not (user['role']=='QC' and unavailable(c,uid)):continue

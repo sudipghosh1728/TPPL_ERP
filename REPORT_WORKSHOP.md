@@ -4,7 +4,7 @@ Open **Uploaded reports** in any department portal, or use **Upload report** ins
 
 1. Prepare the report using your existing tools and format.
 2. Choose **Upload report**, select the file and enter a report name/type. Optionally link a project and inspection batch.
-3. Users can search, download the original file and see upload/approval history. QC/Admin downloads and checks the file, then approves it with review notes.
+3. Users can search, download the original file and see upload/approval history. QC/Admin/Purchase downloads and checks the file, then approves it with review notes.
 4. **Upload revised report** stores a new pending report and retains the earlier file and approval record.
 
 Supported files: PDF, XLS/XLSX, DOC/DOCX, CSV, text, PNG/JPEG/WebP and ODS/ODT. Maximum file size is 3 MB. Files are stored as opaque documents: there is no spreadsheet editor, fixed column requirement, quantity parser or automatic reading assessment. Downloaded files retain their exact uploaded bytes.
@@ -14,3 +14,5 @@ Every department can upload. Project visibility and assigned-QC review restricti
 Unlinked reports are shared company reports. Existing reports prepared in the earlier editor remain downloadable. Uploaded reports and revisions are included in batch, project-dispatch and project-deletion ZIPs. They are stored privately in MongoDB, never in Git or public assets.
 
 Checks: `python -m unittest test_report_workshop test_qc test_project_deletion -v`. To run browser coverage, save `test_report_workshop.fixture()` to `.tools/report-upload.xlsx`, then run `python test_browser.py browser-workshop.cjs` (or `browser-qc.cjs`).
+
+Project-chat attachments are automatically saved as project reports. QC/Admin/Purchase can delete a draft or approved report with a reason before project completion/batch dispatch. Current-report deletion invalidates final inspection and packing. See [Design planning and project assistance](DESIGN_PLANNING.md).

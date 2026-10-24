@@ -3,6 +3,8 @@ import copy,datetime as dt,hashlib,io,json,zipfile
 import access,manufacturing as m,hr_ops,qc_excel as x
 from storage import identifier
 
+PROCESS_OWNERS={'Cutting':'Design','Machining':'Machining','Tapping':'Fabrication','Finishing':'Fabrication','QC':'QC','Blasting':'Fabrication','Primer & Engraving':'Fabrication','Final Paint':'Fabrication','Final QC':'QC','Packing':'Fabrication'}
+
 COLLECTIONS=('qc_batches','qc_reports','qc_trace_lots','qc_imports','qc_audit')
 def today():return dt.datetime.now(dt.timezone(dt.timedelta(hours=5,minutes=30))).date().isoformat()
 def project(c,jid,user,edit=False,author=False):
@@ -32,17 +34,26 @@ def invalidate(c,b,j):
 def blank_steps(source=None):return {s:dict(status='NA' if (source or {}).get(s,'').upper()=='NA' and s in ('Machining','Tapping') else 'Pending',quantity=0,notes='') for s in x.STEPS}
 def create_batch(c,d,user):
  j=project(c,d.get('job_id'),user,True,author=True)
- quantity=x.integer(d.get('quantity'),100)
- values=dict(job_id=j['id'],plant_id=j.get('plant_id',''),po=j['po_number'],customer=j['customer'],drawing=m.text(d,'drawing')[:100],description=str(d.get('description',''))[:200],thickness=m.text(d,'thickness')[:80],quantity=quantity,tc_required=d.get('tc_required') is True,planned_date=dt.date.fromisoformat(str(d.get('planned_date'))).isoformat(),actual_date='',source_actual_date='',drawing_ref='',numbering_ref='',source_steps={},steps=blank_steps(),allocations=[],document_ids=[],current_report=None,version=1,created_at=m.now())
+ access.require(user,('Design',))
+ quantity=m.whole(d.get('quantity'))
+ lot=next((r for r in j.get('dispatch_lots',[]) if r['id']==d.get('lot_id')),None)
+ if d.get('lot_id') and not lot:raise ValueError('Choose a dispatch lot from this project')
+ if j.get('dispatch_lots') and not lot:raise ValueError('Choose a dispatch lot for this drawing')
+ if sum(b['quantity'] for b in c.all('qc_batches',{'job_id':j['id']}))+quantity>j['quantity']:raise ValueError('Drawing quantities exceed the PO quantity')
+ if lot and sum(b['quantity'] for b in c.all('qc_batches',{'job_id':j['id'],'lot_id':lot['id']}))+quantity>lot['quantity']:raise ValueError('Drawing quantities exceed the dispatch lot quantity')
+ if lot:d={**d,'planned_date':lot['date']}
+ values=dict(job_id=j['id'],lot_id=lot['id'] if lot else None,plant_id=j.get('plant_id',''),po=j['po_number'],customer=j['customer'],drawing=m.text(d,'drawing')[:100],description=str(d.get('description',''))[:200],thickness=m.text(d,'thickness')[:80],quantity=quantity,tc_required=d.get('tc_required') is True,planned_date=dt.date.fromisoformat(str(d.get('planned_date'))).isoformat(),actual_date='',source_actual_date='',drawing_ref='',numbering_ref='',source_steps={},steps=blank_steps(),allocations=[],document_ids=[],current_report=None,version=1,created_at=m.now())
  bid=c.insert('qc_batches',**values)
  c.update('work_jobs',{'id':j['id']},{'final_inspection':False,**({'stage':'QC inspection'} if j['stage']=='Packing & dispatch' else {})})
  log(c,{**values,'id':bid},user,'QC dispatch batch created',values['drawing']);return bid
 def schedule(c,d,user):
+ access.require(user,('Design',))
  b,j=batch(c,d,user,True,author=True)
+ if b.get('lot_id'):raise ValueError('Update the dispatch lot date in Design planning')
  c.update('qc_batches',{'id':b['id']},{'planned_date':dt.date.fromisoformat(str(d.get('planned_date'))).isoformat(),'description':str(d.get('description',b['description']))[:200]})
  log(c,b,user,'QC dispatch schedule updated',m.text(d,'notes'))
 def preview(c,d,user):
- access.require(user,('QC',) if d.get('kind')=='tracker' else access.ROLES)
+ access.require(user,('Design',) if d.get('kind')=='tracker' else access.ROLES)
  if d.get('kind')=='tracker':return x.tracker(d.get('file'))
  blank=d.get('mode')!='historical';context={}
  if blank and d.get('batch_id'):
@@ -53,7 +64,7 @@ def preview(c,d,user):
   if parsed['report']['drawing']!=b['drawing']:parsed['warnings'].append('Workbook drawing '+parsed['report']['drawing']+' does not match selected batch '+b['drawing']+'. Choose the matching batch or correct the workbook header before importing.')
  return parsed
 def import_tracker(c,d,user):
- j=project(c,d.get('job_id'),user,True);parsed=x.tracker(d.get('file'));raw=x.file_bytes(d['file']);digest=hashlib.sha256(raw).hexdigest()
+ access.require(user,('Design',));j=project(c,d.get('job_id'),user,True,author=True);parsed=x.tracker(d.get('file'));raw=x.file_bytes(d['file']);digest=hashlib.sha256(raw).hexdigest()
  if c.one('qc_imports',{'job_id':j['id'],'sha256':digest}):raise ValueError('This workbook is already imported into this project')
  if any(b['po']!=str(j['po_number']).strip() for b in parsed['batches']):raise ValueError('Workbook PO does not match the selected project. Choose the correct PO project.')
  did=m.upload(c,j['id'],user,'Supporting',d['file'])
@@ -64,11 +75,14 @@ def import_tracker(c,d,user):
  c.update('work_jobs',{'id':j['id']},{'final_inspection':False,**({'stage':'QC inspection'} if j['stage']=='Packing & dispatch' else {})})
  log(c,{'job_id':j['id']},user,'QC tracker imported as unverified batches',str(len(parsed['batches']))+' drawing / dispatch rows; '+str(len(parsed['trace_lots']))+' unallocated material rows')
 def save_steps(c,d,user):
- b,j=batch(c,d,user,True);steps=d.get('steps')
+ b,j=batch(c,d,user,True,author=True);steps=d.get('steps')
+ if user['role']=='QC':hr_ops.assigned(c,j,user)
  if not isinstance(steps,dict) or set(steps)!=set(x.STEPS):raise ValueError('All process stages are required')
  cleaned={}
  for s in x.STEPS:
-  v=steps[s];status=v.get('status');qty=v.get('quantity');notes=str(v.get('notes','')).strip()[:1000]
+  v=steps[s]
+  if v!=b['steps'][s]:access.require(user,(PROCESS_OWNERS[s],))
+  status=v.get('status');qty=v.get('quantity');notes=str(v.get('notes','')).strip()[:1000]
   if status not in ('Pending','In progress','Done','NA','Rework'):raise ValueError('Invalid process status')
   if isinstance(qty,bool) or not isinstance(qty,int) or not 0<=qty<=b['quantity']:raise ValueError('Stage quantity must be a whole number within batch quantity')
   if status=='Done' and qty!=b['quantity']:raise ValueError('Use In progress for partial quantities: '+s)
@@ -80,11 +94,14 @@ def save_steps(c,d,user):
  if cleaned['Final QC']['status']=='Done':
   errors=release_errors(c,{**b,'steps':cleaned},check_steps=False)
   if errors:raise ValueError('; '.join(errors))
- if cleaned['Packing']['status']=='Done' and not j.get('final_inspection'):raise ValueError('Complete project final inspection before confirming packing')
+ if cleaned['Packing']['status']=='Done' and not b.get('lot_id') and not j.get('final_inspection'):raise ValueError('Complete project final inspection before confirming packing')
  if cleaned!=b['steps']:
-  c.update('qc_batches',{'id':b['id']},{'steps':cleaned})
+  c.update('qc_batches',{'id':b['id']},{'steps':cleaned,'step_updates':{**b.get('step_updates',{}),**{s:dict(by=user['name'],department=user['role'],at=m.now()) for s in x.STEPS if cleaned[s]!=b['steps'][s]}}})
   if cleaned['Final QC']['status']!='Done':c.update('work_jobs',{'id':j['id']},{'final_inspection':False,**({'stage':'QC inspection'} if j['stage']=='Packing & dispatch' else {})})
-  log(c,b,user,'QC process progress updated',m.text(d,'notes'))
+  log(c,b,user,'Department process progress updated',m.text(d,'notes'))
+  if cleaned['Final QC']['status']=='Done' and b['steps']['Final QC']['status']!='Done':
+   import project_flow
+   project_flow.notify(c,j,user,'Drawing '+b['drawing']+' final inspection done; ready for packing',('Admin','Purchase','Design','Fabrication'))
 def trace(c,d,user):
  b,j=batch(c,d,user,True)
  if d.get('new_lot'):
@@ -200,8 +217,13 @@ def release_errors(c,b,check_steps=True,include_packing=True):
  if not b.get('planned_date'):errors.append('Confirm the planned dispatch date')
  return errors
 def dispatch(c,d,user):
- b,j=batch(c,d,user,True)
- if j['stage']!='Packing & dispatch' or not j.get('final_inspection'):raise ValueError('Complete project final inspection before recording batch dispatch')
+ b,j=batch(c,d,user,True,author=True)
+ access.require(user,('Fabrication','QC'))
+ if user['role']=='QC':hr_ops.assigned(c,j,user)
+ if b.get('lot_id'):
+  if b['steps']['Final QC']['status']!='Done':raise ValueError('Complete this batch final QC before dispatch')
+  if c.one('requirements',{'batch_id':b['id'],'job_id':j['id'],'$expr':{'$lt':['$issued','$quantity']}}):raise ValueError('Issue all materials required by this drawing batch before dispatch')
+ elif j['stage']!='Packing & dispatch' or not j.get('final_inspection'):raise ValueError('Complete project final inspection before recording batch dispatch')
  if c.one('project_requests',{'job_id':j['id'],'status':{'$in':['Open','Pending']}}):raise ValueError('Resolve department requests and QC approvals before dispatch')
  if c.one('inspection_calls',{'job_id':j['id'],'status':{'$in':['Pending Admin','Approved','Rework']}}):raise ValueError('Resolve the customer inspection call before dispatch')
  errors=release_errors(c,b)
@@ -228,7 +250,13 @@ def state(c,data,user):
   r=uploads.get(b.get('current_upload'),{}) if b.get('current_upload') else reports.get(b.get('current_report'),{});b['inspection_status']=r.get('status','Not started');b['inspection_summary']=r.get('summary',{})
  data['qc_formats']=c.all('qc_reports',{'job_id':{'$in':ids}},projection={'id':1,'drawing':1,'revision':1,'reference':1,'part_name':1,'job_id':1},sort=[('id',-1)])
 def gate(c,j,dispatching=False):
- for b in c.all('qc_batches',{'job_id':j['id']}):
+ batches=c.all('qc_batches',{'job_id':j['id']})
+ lots=j.get('dispatch_lots',[])
+ if lots:
+  if sum(l['quantity'] for l in lots)!=j['quantity']:raise ValueError('Schedule the complete PO quantity before closing the project')
+  for l in lots:
+   if sum(b['quantity'] for b in batches if b.get('lot_id')==l['id'])!=l['quantity']:raise ValueError('Plan every drawing quantity for dispatch lot '+l['name'])
+ for b in batches:
   errors=release_errors(c,b,include_packing=dispatching)
   if dispatching and not b.get('actual_date'):errors.append('Record batch dispatch')
   if errors:raise ValueError('QC batch '+b['drawing']+' #'+str(b['id'])+': '+'; '.join(errors))
@@ -283,4 +311,13 @@ def tracker_export(c,jid,user):
  output=io.BytesIO();wb.save(output)
  return {'_download':dict(name='PO-'+str(j['id'])+'-QC-dispatch-tracker.xlsx',content=output.getvalue())}
 
-HANDLERS={'create':create_batch,'schedule':schedule,'import-tracker':import_tracker,'steps':save_steps,'trace':trace,'document':document,'import-report':import_report,'save-report':save_report,'approve-report':approve_report,'revise-report':revise_report,'dispatch':dispatch}
+def delete_report(c,d,user):
+ b,j=batch(c,d,user,True);r=c.one('qc_reports',{'id':identifier(d.get('report_id')),'batch_id':b['id']})
+ if not r:raise ValueError('Report not found')
+ reason=m.text(d,'notes')
+ if b.get('current_report')==r['id']:
+  c.update('qc_batches',{'id':b['id']},{'current_report':None})
+  if not b.get('current_upload'):invalidate(c,b,j)
+ c.delete('qc_reports',{'id':r['id']});log(c,b,user,'Saved report deleted',r['reference']+' · '+reason)
+
+HANDLERS={'delete-report':delete_report,'create':create_batch,'schedule':schedule,'import-tracker':import_tracker,'steps':save_steps,'trace':trace,'document':document,'import-report':import_report,'save-report':save_report,'approve-report':approve_report,'revise-report':revise_report,'dispatch':dispatch}

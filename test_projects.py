@@ -94,7 +94,7 @@ class PlantProjectsTests(unittest.TestCase):
   self.call('Design','projects/chat',job_id=other,message='Other project')
   with patch('server.access.current',return_value=self.users['QC']):
    messages=self.store.run(lambda c:server.read_api(c,'/api/projects/chat/'+str(jid),None))['messages']
-   self.assertEqual([m['body'] for m in messages],['Only this project'])
+   self.assertEqual([m['body'] for m in messages if m['department']!='Assistant'],['Only this project'])
   self.call('Admin','projects/action',job_id=jid,action='override',stage='Fabrication execution',notes='Authorized exception')
   self.call('Design','projects/attach',job_id=jid,kind='TC',file=self.file('tc.pdf'))
   self.assertEqual(self.job(jid)['stage'],'Fabrication execution')

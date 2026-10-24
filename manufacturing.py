@@ -25,7 +25,7 @@ def history(c,jid,user,action,notes=''):
 def visible(job,user):
     role=user['role']
     if job.get('flow_version')==2:return True
-    if role in ('Admin','Design','Fabrication','Store'):return True
+    if role in ('Admin','Purchase','Design','Fabrication','Store'):return True
     if role=='Machining':return job['machining_required']==1 and job['stage'] not in ('Design review','Admin revision')
     return False
 def get_job(c,jid,user):
@@ -45,7 +45,16 @@ def upload(c,jid,user,kind,file):
     try:content=base64.b64decode(file.get('content',''),validate=True)
     except (ValueError,binascii.Error):raise ValueError('Invalid document data')
     if not 0<len(content)<=3*1024*1024:raise ValueError('Document must be between 1 byte and 3 MB')
-    return c.insert('job_documents',job_id=jid,kind=kind,name=name,mime='application/octet-stream',content=content,size=len(content),uploaded_by=user['id'],created_at=now())
+    did=c.insert('job_documents',job_id=jid,kind=kind,name=name,mime='application/octet-stream',content=content,size=len(content),uploaded_by=user['id'],created_at=now())
+    if kind in ('PO','Revised PO'):
+        import po_entities
+        suggestions=po_entities.suggestions(content,name)
+        c.update('job_documents',{'id':did},{'spec_suggestions':suggestions})
+        job=c.one('work_jobs',{'id':jid}) or {}
+        # Keep reviewed specifications until a human accepts a revised PO.
+        if not job.get('po_specs'):c.update('work_jobs',{'id':jid},{'po_specs':{**suggestions,'document_id':did}})
+        else:c.update('work_jobs',{'id':jid},{'po_spec_suggestions':{**suggestions,'document_id':did}})
+    return did
 
 def create(c,d,user):
     require(user)
@@ -73,7 +82,7 @@ def attach(c,d,user):
 def requirement(c,d,user):
     require(user,('Design','Machining','Fabrication'))
     job=get_job(c,d.get('job_id'),user);version(job,d)
-    dept=user['role'] if user['role']!='Admin' else d.get('department')
+    dept=user['role'] if user['role'] not in ('Admin','Purchase') else d.get('department')
     if job['stage'] not in EDIT_STAGES.get(dept,()):raise ValueError('Requirements can only be changed by the department currently reviewing this job')
     product=c.one('products',{'id':identifier(d.get('product_id'))})
     if not product:raise ValueError('Choose a material from the Store catalogue')
@@ -156,14 +165,14 @@ def issue(c,d,user):
 
 def state(c,data,user):
     for key in ('work_jobs','requirements','job_documents','work_history','material_issues'):data[key]=[]
-    query={} if user['role'] in ('Admin','Design','Fabrication','Store') else {'machining_required':1,'stage':{'$nin':['Design review','Admin revision']}} if user['role']=='Machining' else {'id':-1}
+    query={} if user['role'] in ('Admin','Purchase','Design','Fabrication','Store') else {'machining_required':1,'stage':{'$nin':['Design review','Admin revision']}} if user['role']=='Machining' else {'id':-1}
     query={'$or':[query,{'flow_version':2}]}
-    jobs=c.all('work_jobs',query,sort=[('id',-1)])
+    jobs=c.all('work_jobs',query,sort=[('id',-1)],projection={'po_specs.entities':0,'po_spec_suggestions.entities':0})
     ids={j['id'] for j in jobs};data['work_jobs']=jobs
     if not ids:return
     query={'job_id':{'$in':list(ids)}}
     data['requirements']=c.all('requirements',query,sort=[('id',1)])
-    data['job_documents']=c.all('job_documents',query,sort=[('id',1)],projection={'content':0})
+    data['job_documents']=c.all('job_documents',query,sort=[('id',1)],projection={'content':0,'spec_suggestions.entities':0})
     data['work_history']=c.all('work_history',query,sort=[('id',-1)])
     req_ids={r['id'] for r in data['requirements']}
     data['material_issues']=c.all('material_issues',{'requirement_id':{'$in':list(req_ids)}})

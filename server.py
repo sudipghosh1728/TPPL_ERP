@@ -109,7 +109,7 @@ def read_api(c,path,cookie):
         return {'profile':c.one('employee_profiles',{'user_id':uid})}
 
     if path in ('/api/projects/notifications','/api/notifications'):
-        return {'notifications':c.all('project_notifications',{} if user['role']=='Admin' else {'roles':user['role']},sort=[('id',-1)])[:200],'dispatch_alerts':hr_ops.alerts(c,c.all('work_jobs'),user),'reminders':reminders.inbox(c,user)}
+        return {'notifications':c.all('project_notifications',{} if user['role'] in ('Admin','Purchase') else {'roles':user['role']},sort=[('id',-1)])[:200],'dispatch_alerts':hr_ops.alerts(c,c.all('work_jobs'),user),'reminders':reminders.inbox(c,user)}
     if path.startswith('/api/projects/delete-export/'):
         parts=path.removeprefix('/api/projects/delete-export/').split('/')
         if len(parts)!=2:raise ValueError('Invalid project archive link')
@@ -134,20 +134,20 @@ def read_api(c,path,cookie):
 
         role=user['role']
         tables=['products']
-        if role in ('Admin','Accounts'):tables+=['orders','activity']
-        if role in ('Admin','Store'):tables+=['movements']
-        if role in ('Admin','Store','Accounts'):tables+=['purchases']
-        if role=='Admin':tables+=['jobs']
+        if role in ('Admin','Purchase','Accounts'):tables+=['orders','activity']
+        if role in ('Admin','Purchase','Store'):tables+=['movements']
+        if role in ('Admin','Purchase','Store','Accounts'):tables+=['purchases']
+        if role in ('Admin','Purchase'):tables+=['jobs']
         data={t:[] for t in ('products','orders','movements','activity','purchases','jobs','accounts','journals','journal_lines','invoice_items','settlements')}
         for t in tables:data[t]=c.all(t,sort=[('id',-1)])
 
         data['settings']={r['key']:r['value'] for r in c.all('settings')}
 
-        if role in ('Admin','Accounts'):accounting.state(c,data)
+        if role in ('Admin','Purchase','Accounts'):accounting.state(c,data)
         manufacturing.state(c,data,user)
         project_flow.state(c,data,user)
         workspace=data['settings'].get('workspace')
-        data['store_invoices']=store_catalog.invoice_register(c,data if role=='Admin' else {k:data[k] for k in ('products','purchases')}) if role in ('Admin','Store') else []
+        data['store_invoices']=store_catalog.invoice_register(c,data if role in ('Admin','Purchase') else {k:data[k] for k in ('products','purchases')}) if role in ('Admin','Purchase','Store') else []
         access.filter_state(c,data,user)
         hr_ops.state(c,data,user)
         reminders.state(c,data,user)
@@ -155,9 +155,9 @@ def read_api(c,path,cookie):
 
         data['workspace']=workspace or company_config.get(c)
 
-        data['templates']=company_config.TEMPLATES if user['role']=='Admin' else {}
+        data['templates']=company_config.TEMPLATES if user['role'] in ('Admin','Purchase') else {}
 
-        data['store_documents']=c.all('store_documents',{} if role in ('Admin','Store') else {'operation':'Inhouse'},sort=[('id',-1)]) if role in ('Admin','Store','Accounts') else []
+        data['store_documents']=c.all('store_documents',{} if role in ('Admin','Purchase','Store') else {'operation':'Inhouse'},sort=[('id',-1)]) if role in ('Admin','Purchase','Store','Accounts') else []
         data['database']={'engine':'MongoDB','name':STORE.database}
 
         return data
@@ -196,7 +196,7 @@ def write_api(c,path,d,cookie,ip):
 
         if error:return {'error':error,'_status':401}
         portal=d.get('portal')
-        if (portal=='admin' and signed['role']!='Admin') or (portal=='user' and signed['role']=='Admin'):
+        if (portal=='admin' and signed['role'] not in ('Admin','Purchase')) or (portal=='user' and signed['role'] in ('Admin','Purchase')):
             c.delete('sessions',{'token_hash':hashlib.sha256(token.encode()).hexdigest()})
             return {'error':'Use the Admin panel for Admin accounts and the User portal for department accounts.','_status':403}
 
@@ -227,7 +227,7 @@ def write_api(c,path,d,cookie,ip):
     elif path=='/api/store-documents':access.require(user,('Store',))
     elif path.startswith('/api/projects/'):access.require(user,access.ROLES)
     elif path.startswith('/api/qc/'):access.require(user,access.ROLES)
-    elif path.startswith('/api/workbooks/'):access.require(user,access.ROLES)
+    elif path.startswith(('/api/workbooks/','/api/planning/')):access.require(user,access.ROLES)
     elif path.startswith('/api/reminders/'):access.require(user,access.ROLES)
     elif path.startswith('/api/hr/'):access.require(user,access.ROLES)
     elif path.startswith('/api/work/'):access.require(user,('Design','Machining','Fabrication','Store'))
@@ -261,6 +261,11 @@ def write_api(c,path,d,cookie,ip):
     elif path.startswith('/api/qc/') and path.split('/')[-1] in qc_ops.HANDLERS:qc_ops.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/reminders/') and path.split('/')[-1] in reminders.HANDLERS:reminders.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/hr/') and path.split('/')[-1] in hr_ops.HANDLERS:hr_ops.HANDLERS[path.split('/')[-1]](c,d,user)
+    elif path.startswith('/api/planning/'):
+        import production_planning
+        action=path.rsplit('/',1)[-1]
+        if action not in production_planning.HANDLERS:raise ValueError('Unknown planning action')
+        production_planning.HANDLERS[action](c,d,user)
     elif path.startswith('/api/projects/') and path.split('/')[-1] in project_flow.HANDLERS:project_flow.HANDLERS[path.split('/')[-1]](c,d,user)
     elif path.startswith('/api/work/') and path.split('/')[-1] in work:
         jid=d.get('job_id')

@@ -21,6 +21,7 @@ def provision(c):
   pf.requirement(c,dict(job_id=j['id'],version=j['version'],product_id=1,quantity=2,material_group='Raw material'),users['Design'])
   j=c.one('work_jobs',{'id':j['id']})
   pf.chat(c,dict(job_id=j['id'],message='Demo project conversation. Messages stay inside this project.'),users['Design'])
+  j=c.one('work_jobs',{'id':j['id']})
   if index==1:pf.submit(c,dict(job_id=j['id'],version=j['version'],notes='Demo design ready for QC verification'),users['Design'])
  c.update('settings',{'key':'company'},{'value':'TPPL · Local preview'})
  c.insert('settings',key='plant_preview_seeded',value=True)

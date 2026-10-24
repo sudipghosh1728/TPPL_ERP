@@ -3,7 +3,7 @@ import access, manufacturing as m
 from storage import identifier
 
 def tone(sender_role, recipient_role):
- return 'red' if sender_role=='Admin' else ('neutral' if sender_role==recipient_role else 'yellow')
+ return 'red' if sender_role in ('Admin','Purchase') else ('neutral' if sender_role==recipient_role else 'yellow')
 
 def inbox(c,user):
  rows=c.all('reminders',{'recipient_id':user['id']},sort=[('id',-1)])[:200]

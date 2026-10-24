@@ -50,7 +50,7 @@ class WorkshopWorkflowTests(unittest.TestCase):
    history=self.store.run(lambda c:c.one('report_workbook_audit',{'report_id':rid,'action':'Saved draft'}))
    self.assertEqual(history['previous_model']['sheets'][0]['cells']['A3']['v'],'2')
    with self.assertRaisesRegex(ValueError,'Another user'):self.call(role,'save',id=rid,version=1,model=row['model'])
-   if role not in ('Admin','QC'):
+   if role not in ('Admin','QC','Purchase'):
     with self.assertRaises(access.AccessError):self.call(role,'approve',id=rid,version=2,notes='Unauthorized')
    self.call('QC','approve',id=rid,version=2,notes='Reviewed all sheets')
    with self.assertRaisesRegex(ValueError,'locked'):self.call(role,'save',id=rid,version=3,model=row['model'])
@@ -74,7 +74,7 @@ class WorkshopWorkflowTests(unittest.TestCase):
    rid=self.call(role,'upload',name='Paint report',category='Painting',file={'name':'paint.pdf','content':base64.b64encode(raw).decode()})['id']
    row=self.row(rid);self.assertEqual(row['mode'],'uploaded');self.assertNotIn('model',row)
    self.assertEqual(self.store.run(lambda c:reports.export(c,rid,self.users[role]))['_download']['content'],raw)
-   if role not in ('Admin','QC'):
+   if role not in ('Admin','QC','Purchase'):
     with self.assertRaises(access.AccessError):self.call(role,'approve',id=rid,version=1,notes='Invalid reviewer')
    self.call('QC','approve',id=rid,version=1,notes='Downloaded and reviewed')
    revised=self.call(role,'upload',id=rid,version=2,name='Paint report revision',category='Painting',file={'name':'revised.xlsx','content':base64.b64encode(b'Any worksheet layout; no parsing').decode()})['id']
@@ -87,7 +87,7 @@ class WorkshopWorkflowTests(unittest.TestCase):
   admin=self.users['Admin'];reviewer=self.users['QC'];author=self.users['Store']
   self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='Upload project',customer='Test',po_number='PO-U',quantity=1,due='2026-12-01',route='Fabrication only',file=dict(name='po.txt',content='UE8=')),admin))
   jid=self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0]['id'])
-  self.store.run(lambda c:qc.create_batch(c,dict(job_id=jid,drawing='ANY-01',thickness='20mm',quantity=1,planned_date='2026-12-01'),author))
+  self.store.run(lambda c:qc.create_batch(c,dict(job_id=jid,drawing='ANY-01',thickness='20mm',quantity=1,planned_date='2026-12-01'),admin))
   def batch():return self.store.run(lambda c:c.all('qc_batches',{'job_id':jid})[0])
   file={'name':'final-report.pdf','content':base64.b64encode(b'%PDF-1.4 arbitrary finished report').decode()}
   b=batch();rid=self.call('Store','upload',name='Inspection',category='Inspection',job_id=jid,batch_id=b['id'],batch_version=b['version'],file=file)['id']
@@ -101,7 +101,7 @@ class WorkshopWorkflowTests(unittest.TestCase):
   b=batch();self.assertEqual(self.store.run(lambda c:qc.release_errors(c,b,check_steps=False)),[])
   packet=self.store.run(lambda c:qc.packet(c,b['id'],author))['_download']['content']
   with zipfile.ZipFile(io.BytesIO(packet)) as z:self.assertEqual(z.read(f'uploaded-reports/{rid}-Approved-final-report.pdf'),base64.b64decode(file['content']))
-  old_version=b['version'];self.store.run(lambda c:qc.schedule(c,dict(batch_id=b['id'],version=b['version'],planned_date='2026-12-02',notes='Changed date'),reviewer))
+  old_version=b['version'];self.store.run(lambda c:qc.schedule(c,dict(batch_id=b['id'],version=b['version'],planned_date='2026-12-02',notes='Changed date'),admin))
   with self.assertRaisesRegex(ValueError,'changed'):self.call('Store','upload',id=rid,version=2,name='Revision',category='Inspection',batch_version=old_version,file=file)
   b=batch();revision=self.call('Store','upload',id=rid,version=2,name='Revision',category='Inspection',batch_version=b['version'],file=file)['id'];b=batch()
   self.assertEqual(b['current_upload'],revision);self.assertIn('Approve the current inspection report',self.store.run(lambda c:qc.release_errors(c,b,check_steps=False)))

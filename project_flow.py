@@ -6,7 +6,7 @@ from storage import identifier
 PLANTS=[dict(id='talawade',name='Unit I · Talawade, Pune',area='40,000 sq. ft.',capabilities='Profile cutting, bending and machining',cranes='Up to 20 tonnes'),dict(id='solu',name='Unit II · Solu, Alandi',area='160,000 sq. ft.',capabilities='Machining, welding, painting and shot blasting',cranes='Up to 40 tonnes'),dict(id='chakan',name='Unit III · Chakan, Wasuli',area='46,000 sq. ft.',capabilities='Machining and fabrication',cranes='10 tonnes'),dict(id='khandala',name='Unit IV · Khandala, Satara',area='70,000 sq. ft.',capabilities='Heavy machining, bending and laser cutting',cranes='Up to 32 tonnes')]
 STAGES=['Design review','Admin review','Accounts review','Maintenance review','HR review','QC approval','Store issue','Fabrication execution','Machining execution','QC inspection','Packing & dispatch','Completed']
 ROUTES={'Fabrication only':False,'Fabrication + machining':True,'Machining only':True}
-TARGETS={'Design':'Design review','Store':'Store issue','Fabrication':'Fabrication execution','Machining':'Machining execution','QC':'QC inspection','Admin':'Admin review','Accounts':'Accounts review','Maintenance':'Maintenance review','HR':'HR review'}
+TARGETS={'Purchase':'Admin review','Design':'Design review','Store':'Store issue','Fabrication':'Fabrication execution','Machining':'Machining execution','QC':'QC inspection','Admin':'Admin review','Accounts':'Accounts review','Maintenance':'Maintenance review','HR':'HR review'}
 REQUEST_TARGETS={role:tuple(access.ROLES) for role in access.ROLES}
 
 def plant(value):
@@ -66,7 +66,7 @@ def request(c,d,user):
  j=project(c,d,user);m.version(j,d);open_job(j)
  access.require(user,('Design','Machining','Fabrication','QC','Store','Accounts','Maintenance','HR'))
  target=d.get('target')
- if target not in (access.ROLES if user['role']=='Admin' else REQUEST_TARGETS.get(user['role'],())):raise ValueError('Choose an allowed destination department')
+ if target not in (access.ROLES if user['role'] in ('Admin','Purchase') else REQUEST_TARGETS.get(user['role'],())):raise ValueError('Choose an allowed destination department')
  if pending(c,j):raise ValueError('QC must decide the current request first')
  kind=d.get('kind','Handoff')
  if kind not in ('Handoff','Rework'):raise ValueError('Choose a handoff or rework request')
@@ -122,6 +122,7 @@ def edit(c,d,user):
  if route not in ROUTES:raise ValueError('Choose a production route')
  values=dict(title=m.text(d,'title'),po_number=m.text(d,'po_number'),quantity=m.whole(d.get('quantity')),due=date(d.get('due')),revised_due=date(d['revised_due']) if d.get('revised_due') else '',route=route,machining_required=int(ROUTES[route]))
  if route!=j['route']:values['machining_completed']=False
+ if values['quantity']<sum(l['quantity'] for l in j.get('dispatch_lots',[])):raise ValueError('PO quantity cannot be below scheduled dispatch quantities')
  c.update('work_jobs',{'id':j['id']},values);revise(c,j,user,'Project details revised');record(c,j,user,'Project details revised',d.get('notes',''))
 
 def attach(c,d,user):
@@ -179,7 +180,7 @@ def action(c,d,user):
   access.require(user,(owner,));request(c,{**d,'target':'Design'},user);return
  if a=='progress':
   access.require(user,('Fabrication','Machining'))
-  if user['role']!='Admin' and j['stage']!=user['role']+' execution':raise ValueError('Your department has not been released to start this process')
+  if user['role'] not in ('Admin','Purchase') and j['stage']!=user['role']+' execution':raise ValueError('Your department has not been released to start this process')
   record(c,j,user,user['role']+' progress update',notes);return
  if a in ('fabrication_done','machining_done'):
   role='Fabrication' if a=='fabrication_done' else 'Machining';access.require(user,(role,))
@@ -191,13 +192,13 @@ def action(c,d,user):
   qc_ops.gate(c,j)
   access.require(user,('QC',))
   if c.one('project_requests',{'job_id':j['id'],'mode':'direct','status':{'$in':['Open','Pending']}}):raise ValueError('Complete department requests and obtain QC approval before final inspection')
-  if j['stage']!='QC inspection' and user['role']!='Admin':raise ValueError('Project is not at final inspection')
-  if j['machining_required'] and not j.get('machining_completed') and user['role']!='Admin':raise ValueError('Complete machining before final inspection')
-  if user['role']!='Admin' and c.one('requirements',{'job_id':j['id'],'$expr':{'$lt':['$issued','$quantity']}}):raise ValueError('Store must issue all approved project materials before final inspection')
+  if j['stage']!='QC inspection' and user['role'] not in ('Admin','Purchase'):raise ValueError('Project is not at final inspection')
+  if j['machining_required'] and not j.get('machining_completed') and user['role'] not in ('Admin','Purchase'):raise ValueError('Complete machining before final inspection')
+  if user['role'] not in ('Admin','Purchase') and c.one('requirements',{'job_id':j['id'],'$expr':{'$lt':['$issued','$quantity']}}):raise ValueError('Store must issue all approved project materials before final inspection')
   if c.one('inspection_calls',{'job_id':j['id'],'status':{'$in':['Pending Admin','Approved','Rework']}}):raise ValueError('Resolve the outstanding inspection call and record an OK report first')
-  if pending(c,j) and user['role']!='Admin':raise ValueError('Decide the pending request first')
+  if pending(c,j) and user['role'] not in ('Admin','Purchase'):raise ValueError('Decide the pending request first')
   c.update('project_requests',{'job_id':j['id'],'status':'Pending'},{'status':'Superseded','review_notes':'Admin final inspection override: '+notes})
-  c.update('work_jobs',{'id':j['id']},{'stage':'Packing & dispatch','final_inspection':True});record(c,j,user,'Final inspection done → Packing & dispatch',notes);notify(c,j,user,'Final inspection done',('Admin','Design','Fabrication'));return
+  c.update('work_jobs',{'id':j['id']},{'stage':'Packing & dispatch','final_inspection':True});record(c,j,user,'Final inspection done → Packing & dispatch',notes);notify(c,j,user,'Final inspection done',('Admin','Purchase','Design','Fabrication'));return
  if a=='dispatch':
   qc_ops.gate(c,j,dispatching=True)
   access.require(user,('Fabrication',))
@@ -210,7 +211,7 @@ def action(c,d,user):
   oid=c.insert('dispatch_outbox',job_id=j['id'],recipient=recipient,status='Queued',created_at=m.now(),version=j['version']+1)
   packet=build_archive(c,j['id'],user)['_download']['content']
   for offset in range(0,len(packet),512*1024):c.insert('dispatch_archives',outbox_id=oid,chunk=offset//(512*1024),content=packet[offset:offset+512*1024])
-  notify(c,j,user,'Dispatched · project archive queued for email',('Admin','Design'));return
+  notify(c,j,user,'Dispatched · project archive queued for email',('Admin','Purchase','Design'));return
  if a=='override':
   access.require(user);target=d.get('stage')
   if target not in STAGES[:-1]:raise ValueError('Use dispatch completion to close a project')
@@ -226,7 +227,7 @@ def inspection(c,d,user):
  if a=='call':
   if c.one('inspection_calls',{'job_id':j['id'],'status':{'$in':['Pending Admin','Approved','Rework']}}):raise ValueError('Finish the existing inspection call first')
   c.insert('inspection_calls',job_id=j['id'],status='Pending Admin',notes=m.text(d,'notes'),created_by=user['name'],created_at=m.now())
-  notify(c,j,user,'Customer inspection call · Admin approval required',('Admin','Design'));record(c,j,user,'Customer inspection call raised',d['notes']);return
+  notify(c,j,user,'Customer inspection call · Admin approval required',('Admin','Purchase','Design'));record(c,j,user,'Customer inspection call raised',d['notes']);return
  call=c.one('inspection_calls',{'id':identifier(d.get('call_id')),'job_id':j['id']})
  if not call:raise ValueError('Inspection call not found')
  if a=='approve':
@@ -241,11 +242,41 @@ def inspection(c,d,user):
   if status=='Rework':c.update('work_jobs',{'id':j['id']},{'stage':'QC inspection','final_inspection':False})
  else:raise ValueError('Unknown inspection action')
  c.update('inspection_calls',{'id':call['id']},{'status':status,'report':notes,'updated_by':user['name'],'updated_at':m.now()})
- record(c,j,user,'Inspection call '+status,notes);notify(c,j,user,'Inspection call '+status,('Admin','Design','QC'))
+ record(c,j,user,'Inspection call '+status,notes);notify(c,j,user,'Inspection call '+status,('Admin','Purchase','Design','QC'))
 
 def chat(c,d,user):
- j=project(c,d,user)
- c.insert('project_messages',job_id=j['id'],author_id=user['id'],author=user['name'],department=user['role'],body=m.text(d,'message'),created_at=m.now())
+ import re,report_workshop,po_entities
+ j=project(c,d,user);open_job(j)
+ body=str(d.get('message','')).strip()
+ if len(body)>4000 or not body and not d.get('file'):raise ValueError('Enter a message or attach a report')
+ report_id=None
+ if d.get('file'):
+  report_id=report_workshop.upload(c,dict(name=str(d.get('report_name') or d['file'].get('name') or 'Chat report'),category='Project chat report',job_id=j['id'],file=d['file'],notes=body),user)['id']
+ entities=po_entities.entities(body);roles=set()
+ # Explicit department mentions take priority; dimensions/materials also reach their owners.
+ for role in access.ROLES:
+  if re.search(r'\b'+re.escape(role)+r'\b',body,re.I):roles.add(role)
+ if any(e['label']=='DIMENSION' for e in entities) or re.search(r'\b(dimension|dimensioning|dimention|cutting|tolerance|drawing)\b',body,re.I):roles.update(('Design','Fabrication'))
+ if any(e['label'] in ('MATERIAL_GRADE','CERTIFICATE') for e in entities) or re.search(r'\b(material|requirement|plate|plates|bar|bars|stock)\b',body,re.I):roles.update(('Design','Purchase','Store'))
+ if re.search(r'\b(paint|painting|blast|blasting|primer|finish|finishing|tapping)\b',body,re.I):roles.add('Fabrication')
+ if re.search(r'\b(machine|machining|cnc|vmc)\b',body,re.I):roles.add('Machining')
+ if report_id or re.search(r'\b(inspection|rework|quality)\b',body,re.I):roles.add('QC')
+ if d.get('department'):
+  if d['department'] not in access.ROLES:raise ValueError('Choose a valid department')
+  roles.add(d['department'])
+ users=c.all('users',{'active':1},projection={'id':1,'name':1,'role':1,'username':1})
+ mentions=set(re.findall(r'@([A-Za-z0-9._-]+)',body.lower()))
+ recipients=[u for u in users if u['id']!=user['id'] and (u['role'] in roles or u.get('username','').lower() in mentions)]
+ if d.get('recipient_id'):
+  chosen=next((u for u in users if u['id']==identifier(d['recipient_id'])),None)
+  if not chosen:raise ValueError('Choose an active project recipient')
+  if chosen['id']!=user['id'] and chosen['id'] not in [u['id'] for u in recipients]:recipients.append(chosen)
+ c.insert('project_messages',job_id=j['id'],author_id=user['id'],author=user['name'],department=user['role'],body=body or 'Report attached',report_id=report_id,created_at=m.now())
+ for recipient in recipients:
+  if m.visible(j,recipient):c.insert('reminders',recipient_id=recipient['id'],sender_id=user['id'],sender_name=user['name'],sender_role=user['role'],message='Project chat · '+j['title']+': '+(body or 'New report uploaded')[:3500],job_id=j['id'],created_at=m.now(),read_at='')
+ response=('Report saved in Uploaded reports. ' if report_id else '')+('Notified: '+', '.join(u['name']+' ('+u['role']+')' for u in recipients)+'.' if recipients else 'No matching active recipient. Select a department or person to direct your next message.')
+ c.insert('project_messages',job_id=j['id'],author_id=None,author='Project assistant',department='Assistant',body=response,created_at=m.now())
+ m.history(c,j['id'],user,'Project chat posted',('Report '+str(report_id)+'; ' if report_id else '')+'Notified '+str(len(recipients))+' people');m.bump(c,j['id'])
 
 def maintenance(c,d,user):
  if not d.get('id'):
@@ -302,8 +333,8 @@ def state(c,data,user):
  ids=[j['id'] for j in data['work_jobs'] if j.get('flow_version')==2]
  for name in ('project_requests','inspection_calls','dispatch_outbox'):
   data[name]=c.all(name,{'job_id':{'$in':ids}},sort=[('id',-1)])
- data['project_notifications']=c.all('project_notifications',{} if user['role']=='Admin' else {'roles':user['role']},sort=[('id',-1)])[:200] if user else []
- data['maintenance_tickets']=c.all('maintenance_tickets',{} if user['role'] in ('Admin','QC','Maintenance') else {'created_by':user['id']},sort=[('id',-1)])
- data['archive_recipient']=(c.one('settings',{'key':'archive_recipient'}) or {}).get('value','sudipghosh1728@gmail.com') if user['role']=='Admin' else ''
+ data['project_notifications']=c.all('project_notifications',{} if user['role'] in ('Admin','Purchase') else {'roles':user['role']},sort=[('id',-1)])[:200] if user else []
+ data['maintenance_tickets']=c.all('maintenance_tickets',{} if user['role'] in ('Admin','Purchase','QC','Maintenance') else {'created_by':user['id']},sort=[('id',-1)])
+ data['archive_recipient']=(c.one('settings',{'key':'archive_recipient'}) or {}).get('value','sudipghosh1728@gmail.com') if user['role'] in ('Admin','Purchase') else ''
 
 HANDLERS={'create':create,'edit':edit,'attach':attach,'delete-document':delete_document,'requirement':requirement,'issue':issue,'submit':submit,'request':direct_request,'complete-request':complete_request,'urgency':urgency,'decide':decide,'action':action,'inspection':inspection,'chat':chat,'maintenance':maintenance,'archive-settings':archive_settings}

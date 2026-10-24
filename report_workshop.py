@@ -137,4 +137,19 @@ def archive(z,c,jid,batch_id=None):
   z.writestr(f'report-workshop/{row["id"]}-original.xlsx',row['source'])
   z.writestr(f'report-workshop/{row["id"]}-{row["status"]}.xlsx',sheet.export(row['source'],row['model']))
 
-HANDLERS={'upload':upload,'create':create,'save':save,'approve':approve,'duplicate':duplicate}
+def delete(c,d,user):
+ access.require(user,('QC',));row=get(c,d.get('id'),user,True,d.get('version'))
+ reason=m.text(d,'notes');job=project(c,row.get('job_id'),user,True)
+ if job:hr_ops.assigned(c,job,user)
+ if row.get('batch_id'):
+  import qc_ops as q
+  b,job=q.batch(c,{'batch_id':row['batch_id'],'version':d.get('batch_version')},user,True)
+  if b.get('current_upload')==row['id']:
+   c.update('qc_batches',{'id':b['id']},{'current_upload':None,'current_report':None});q.invalidate(c,b,job)
+  q.log(c,b,user,'Report deleted',row['name']+' · '+reason)
+ audit(c,row,user,'Report deleted',reason)
+ c.delete('report_workbooks',{'id':row['id']})
+ c.update('project_messages',{'report_id':row['id']},{'report_id':None,'report_deleted':True})
+ return {'deleted':row['id']}
+
+HANDLERS={'delete':delete,'upload':upload,'create':create,'save':save,'approve':approve,'duplicate':duplicate}
