@@ -21,6 +21,20 @@ class PlantProjectsTests(unittest.TestCase):
  def approve(self,jid):
   r=next(r for r in self.rows('project_requests',jid) if r['status']=='Pending')
   self.call('QC','projects/decide',job_id=jid,request=r['id'],decision='Approved',notes='Verified')
+ def test_qc_can_upload_every_project_document_type(self):
+  jid=self.create();before=len(self.rows('job_documents',jid))
+  for kind in ('PO','Revised PO','Drawing','Material requirement','EWAY challan','TC','Supporting'):
+   self.call('QC','projects/attach',job_id=jid,kind=kind,file=self.file(kind+'.txt'))
+  docs=self.rows('job_documents',jid)[before:]
+  self.assertEqual({d['kind'] for d in docs},{'PO','Revised PO','Drawing','Material requirement','EWAY challan','TC','Supporting'})
+  self.assertTrue(all(d['uploaded_by']==self.users['QC']['id'] for d in docs))
+  for role,kind in [('Store','PO'),('Fabrication','Drawing'),('Accounts','TC')]:
+   with self.assertRaises(access.AccessError):self.call(role,'projects/attach',job_id=jid,kind=kind,file=self.file())
+  with self.assertRaises(access.AccessError):self.call('QC','projects/delete-document',job_id=jid,document=docs[0]['id'],notes='No new deletion permission')
+  self.store.run(lambda c:c.update('work_jobs',{'id':jid},{'stage':'Fabrication execution'}))
+  self.call('QC','projects/attach',job_id=jid,kind='Drawing',file=self.file('new-drawing.txt'))
+  self.assertEqual(self.job(jid)['stage'],'Design review')
+  with self.assertRaises(ValueError):self.call('QC','projects/attach',job_id=jid,version=1,kind='TC',file=self.file())
  def test_every_department_can_request_directly_and_completed_work_needs_qc(self):
   for role in access.ROLES:
    jid=self.create(route='Fabrication only');target='Machining' if role!='Machining' else 'Fabrication'

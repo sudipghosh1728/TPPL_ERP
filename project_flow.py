@@ -127,8 +127,8 @@ def edit(c,d,user):
 
 def attach(c,d,user):
  j=project(c,d,user);m.version(j,d);kind=d.get('kind')
- if kind in ('PO','Revised PO','Drawing','Material requirement'):access.require(user,('Design',))
- elif kind=='TC':access.require(user,('Design','Store'))
+ if kind in ('PO','Revised PO','Drawing','Material requirement'):access.require(user,('Design','QC'))
+ elif kind=='TC':access.require(user,('Design','Store','QC'))
  elif kind=='EWAY challan':access.require(user,access.ROLES)
  elif kind=='Supporting':access.require(user,('Design','Store','Fabrication','Machining','QC'))
  else:raise ValueError('Choose a document type')
