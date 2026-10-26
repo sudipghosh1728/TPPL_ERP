@@ -30,10 +30,13 @@ def open_job(j):
 
 def create(c,d,user):
  access.require(user,('Design',))
+ if not d.get('file') or not d.get('drawing_file'):raise ValueError('Upload both the customer PO and project drawing to create a project')
+ if not all(isinstance(d[k],dict) for k in ('file','drawing_file')):raise ValueError('Choose valid PO and drawing files')
+ if sum(len(str(d[k].get('content',''))) for k in ('file','drawing_file'))>4*1024*1024:raise ValueError('PO and drawing together must be 3 MB or smaller')
  route=d.get('route')
  if route not in ROUTES:raise ValueError('Choose the production route')
  jid=c.insert('work_jobs',flow_version=2,plant_id=plant(d.get('plant_id')),title=m.text(d,'title'),customer=m.text(d,'customer'),po_number=m.text(d,'po_number'),quantity=m.whole(d.get('quantity')),due=date(d.get('due')),revised_due=date(d['revised_due']) if d.get('revised_due') else '',route=route,machining_required=int(ROUTES[route]),machining_completed=False,final_inspection=False,created_by=user['id'],created_at=m.now(),instructions=str(d.get('instructions',''))[:4000])
- m.upload(c,jid,user,'PO',d.get('file'));m.history(c,jid,user,'Project created → Design review')
+ m.upload(c,jid,user,'PO',d.get('file'));m.upload(c,jid,user,'Drawing',d.get('drawing_file'));m.history(c,jid,user,'Project created → Design review')
 
 def pending(c,j):return c.one('project_requests',{'job_id':j['id'],'status':'Pending'})
 
@@ -132,7 +135,25 @@ def attach(c,d,user):
  elif kind=='EWAY challan':access.require(user,access.ROLES)
  elif kind=='Supporting':access.require(user,('Design','Store','Fabrication','Machining','QC'))
  else:raise ValueError('Choose a document type')
- m.upload(c,j['id'],user,kind,d.get('file'))
+ did=m.upload(c,j['id'],user,kind,d.get('file'))
+ if kind=='TC':
+  import dispatch_structure as ds
+  open_job(j);scope=d.get('tc_scope','project');values={'tc_scope':scope}
+  if scope=='drawing':
+   b=c.one('qc_batches',{'id':identifier(d.get('tc_batch_id')),'job_id':j['id']})
+   if not b:raise ValueError('Choose a drawing from this project')
+   if b.get('actual_date') or b['steps']['Final QC']['status']=='Done':raise ValueError('Add this TC before final inspection')
+   values['tc_batch_id']=b['id']
+  elif scope=='job':
+   lot=next((l for l in j.get('dispatch_lots',[]) if l['id']==d.get('tc_lot_id')),None)
+   if not lot or not d.get('tc_item_id'):raise ValueError('Choose a job from this project')
+   ds.item_context(lot,d['tc_item_id']);values.update(tc_lot_id=lot['id'],tc_item_id=d['tc_item_id'])
+  elif scope!='project':raise ValueError('Choose project, job or drawing for the TC')
+  c.update('job_documents',{'id':did},values)
+  for b in c.all('qc_batches',{'job_id':j['id']}):
+   if ds.tc_applies({'kind':'TC',**values},b,j) and not b.get('actual_date') and b['steps']['Final QC']['status']!='Done':
+    c.update('qc_batches',{'id':b['id']},{'document_ids':list(dict.fromkeys(b['document_ids']+[did]))})
+    qc_ops.invalidate(c,b,j);qc_ops.log(c,b,user,'TC linked before final inspection',scope)
  if kind in ('PO','Revised PO','Drawing','Material requirement'):revise(c,j,user,kind+' uploaded')
  record(c,j,user,kind+' uploaded')
 

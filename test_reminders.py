@@ -31,7 +31,7 @@ class ReminderTests(unittest.TestCase):
   self.assertEqual(len(state['reminders']),1)
 
  def test_urgency_role_and_stale_version_guards(self):
-  self.call(0,'projects/create',plant_id='solu',title='Urgent job',customer='Test',po_number='PO',quantity=1,due='2026-12-31',route='Fabrication only',file={'name':'po.pdf','content':'UE8='})
+  self.call(0,'projects/create',plant_id='solu',title='Urgent job',customer='Test',po_number='PO',quantity=1,due='2026-12-31',route='Fabrication only',drawing_file=dict(name='drawing.txt',content='RFJBV0lORw=='),file={'name':'po.pdf','content':'UE8='})
   j=self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0])
   with self.assertRaises(access.AccessError):self.call(1,'projects/urgency',job_id=j['id'],version=j['version'],urgent=True)
   self.call(5,'projects/urgency',job_id=j['id'],version=j['version'],urgent=True,urgent_role='Admin')

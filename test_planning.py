@@ -1,5 +1,5 @@
 import unittest,base64,copy
-import access,seed,project_flow as pf,qc_ops as q,production_planning as plan,report_workshop as reports,po_entities,server
+import access,seed,project_flow as pf,qc_ops as q,production_planning as plan,report_workshop as reports,po_entities,server,dispatch_structure as ds,hr_ops
 from mongo_test_support import test_store,clean
 from unittest.mock import patch
 
@@ -9,7 +9,7 @@ class PlanningTests(unittest.TestCase):
  def setUp(self):
   self.store=test_store();self.store.prepare();self.store.run(lambda c:seed.initialize(c,demo=True))
   self.users={r:dict(id=i+1,name=r+' test',role=r,username=r.lower(),active=1) for i,r in enumerate(access.ROLES)}
-  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='560 plates',customer='Test',po_number='PLAN-560',quantity=560,due='2026-12-01',route='Fabrication + machining',file=file()),self.users['Design']))
+  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='560 plates',customer='Test',po_number='PLAN-560',quantity=560,due='2026-12-01',route='Fabrication + machining',drawing_file=dict(name='drawing.txt',content='RFJBV0lORw=='),file=file()),self.users['Design']))
   self.jid=self.store.run(lambda c:c.all('work_jobs')[0]['id'])
  def tearDown(self):clean(self.store)
  def job(self):return self.store.run(lambda c:c.one('work_jobs',{'id':self.jid}))
@@ -18,6 +18,57 @@ class PlanningTests(unittest.TestCase):
  def lot(self,name='First 60',qty=60):
   self.call(plan.dispatch_lot,job_id=self.jid,version=self.job()['version'],name=name,quantity=qty,date='2026-12-01');return self.job()['dispatch_lots'][-1]['id']
  def drawing(self,lot=None,qty=60):return self.call(q.create_batch,job_id=self.jid,lot_id=lot,drawing='DR-01',thickness='20',quantity=qty,planned_date='2026-12-01')
+ def assembly_lot(self,qty=80):
+  self.call(plan.dispatch_lot,job_id=self.jid,version=self.job()['version'],name='Assembly dispatch',quantity=qty,date=hr_ops.today(),quantity_basis='assemblies');return self.job()['dispatch_lots'][-1]['id']
+ def item(self,lid,name,qty,parent=None):return self.call(plan.work_item,job_id=self.jid,version=self.job()['version'],lot_id=lid,name=name,quantity=qty,parent_id=parent)
+ def parts(self,lid,iid,rows):return self.call(q.create_many,job_id=self.jid,version=self.job()['version'],lot_id=lid,work_item_id=iid,drawings=[dict(drawing=name,pieces_per_item=qty,thickness='20',tc_required=True) for name,qty in rows])['ids']
+ def test_assemblies_multiple_jobs_subjobs_and_drawing_totals(self):
+  lid=self.assembly_lot();root=self.item(lid,'Frame',60);other=self.item(lid,'Housing',20);child=self.item(lid,'Support',2,root)
+  first,second=self.parts(lid,root,[('Plate',2),('Bracket',1)]);sub=self.parts(lid,child,[('Pin',3)])[0];last=self.parts(lid,other,[('Shell',2)])[0]
+  self.assertEqual([self.batch(b)['quantity'] for b in (first,second,sub,last)],[120,60,360,40])
+  self.assertEqual(self.batch(sub)['job_path'],'Frame / Support')
+  lot=self.job()['dispatch_lots'][0];rows=self.store.run(lambda c:c.all('qc_batches',{'job_id':self.jid}))
+  self.assertEqual(ds.planning_errors(lot,rows),[])
+  with self.assertRaisesRegex(ValueError,'exceed'):self.item(lid,'Too many',1)
+  with self.assertRaises(ValueError):self.parts(lid,root,[('Plate',1)])
+  before=len(rows)
+  with self.assertRaises(ValueError):self.parts(lid,root,[('Valid',1),('Invalid',0)])
+  self.assertEqual(len(self.store.run(lambda c:c.all('qc_batches',{'job_id':self.jid}))),before)
+  with self.assertRaises(access.AccessError):self.call(plan.work_item,'QC',job_id=self.jid,version=self.job()['version'],lot_id=lid,name='Wrong',quantity=1)
+  with self.assertRaises(ValueError):self.call(q.create_many,job_id=self.jid,version=1,lot_id=lid,work_item_id=root,drawings=[dict(drawing='Stale',thickness='20',pieces_per_item=1)])
+ def test_dispatch_reminder_counts_complete_assemblies_not_component_pieces(self):
+  lid=self.assembly_lot();root=self.item(lid,'Frame',80);a,b=self.parts(lid,root,[('Plate',2),('Bracket',1)])
+  self.store.run(lambda c:c.update('qc_batches',{'id':a},{'actual_date':q.today()}))
+  rows=self.store.run(lambda c:c.all('qc_batches',{'job_id':self.jid}));lot=self.job()['dispatch_lots'][0]
+  self.assertFalse(ds.dispatched(lot,rows))
+  alerts=self.store.run(lambda c:hr_ops.alerts(c,[self.job()],self.users['Design']));self.assertEqual(alerts[0]['due'],hr_ops.today())
+  with self.assertRaisesRegex(ValueError,'dispatched'):self.parts(lid,root,[('Late part',1)])
+  self.store.run(lambda c:c.update('qc_batches',{'id':b},{'actual_date':q.today()}))
+  self.assertTrue(ds.dispatched(lot,self.store.run(lambda c:c.all('qc_batches',{'job_id':self.jid}))))
+ def test_tc_scopes_and_process_progress_before_documents(self):
+  lid=self.assembly_lot();root=self.item(lid,'Frame',60);child=self.item(lid,'Support',2,root);other=self.item(lid,'Housing',20)
+  a=self.parts(lid,root,[('Plate',1)])[0];b=self.parts(lid,child,[('Pin',1)])[0];z=self.parts(lid,other,[('Shell',1)])[0]
+  steps={s:dict(status='Done',quantity=60,notes='Complete') if s not in ('Final QC','Packing') else dict(status='Pending',quantity=0,notes='Awaiting final inspection') for s in q.x.STEPS}
+  self.call(q.save_steps,'Admin',batch_id=a,version=self.batch(a)['version'],steps=steps,notes='No documents yet')
+  self.assertEqual(self.batch(a)['steps']['Final Paint']['status'],'Done')
+  errors=self.store.run(lambda c:q.release_errors(c,self.batch(a),check_steps=False));self.assertIn('Attach Drawing',errors);self.assertIn('Attach TC',errors)
+  self.call(pf.attach,'Store',job_id=self.jid,version=self.job()['version'],kind='TC',file=file('frame-tc.txt'),tc_scope='job',tc_lot_id=lid,tc_item_id=root)
+  self.assertTrue(self.batch(a)['document_ids']);self.assertEqual(self.batch(a)['document_ids'],self.batch(b)['document_ids']);self.assertFalse(self.batch(z)['document_ids'])
+  late=self.parts(lid,child,[('Washer',2)])[0];self.assertEqual(self.batch(late)['document_ids'],self.batch(b)['document_ids'])
+  self.call(pf.attach,'QC',job_id=self.jid,version=self.job()['version'],kind='TC',file=file('shell-tc.txt'),tc_scope='drawing',tc_batch_id=z)
+  self.assertEqual(len(self.batch(z)['document_ids']),1)
+  self.assertEqual(self.batch(a)['steps']['Final Paint']['status'],'Done')
+  steps['Final QC']=dict(status='Done',quantity=60,notes='Missing evidence')
+  with self.assertRaises(ValueError):self.call(q.save_steps,'Admin',batch_id=a,version=self.batch(a)['version'],steps=steps,notes='Too early')
+ def test_new_projects_require_po_and_drawing_atomically(self):
+  payload=dict(plant_id='solu',title='Requires drawing',customer='Test',po_number='Required',quantity=1,due='2026-12-01',route='Fabrication only')
+  before=len(self.store.run(lambda c:c.all('work_jobs')))
+  for extra in ({},{'file':file()},{'drawing_file':file('drawing.txt')}):
+   with self.assertRaisesRegex(ValueError,'both'):self.call(pf.create,**payload,**extra)
+  self.assertEqual(len(self.store.run(lambda c:c.all('work_jobs'))),before)
+  self.call(pf.create,**payload,file=file(),drawing_file=file('drawing.txt'))
+  project=self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0]);docs=self.store.run(lambda c:c.all('job_documents',{'job_id':project['id']}))
+  self.assertEqual({d['kind'] for d in docs},{'PO','Drawing'})
  def test_lots_dimensions_consumption_and_stale_edits(self):
   lid=self.lot();bid=self.drawing(lid)
   with self.assertRaises(ValueError):self.drawing(lid,1)

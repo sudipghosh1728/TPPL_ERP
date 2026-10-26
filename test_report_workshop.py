@@ -56,7 +56,7 @@ class WorkshopWorkflowTests(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,'locked'):self.call(role,'save',id=rid,version=3,model=row['model'])
    revision=self.call(role,'duplicate',id=rid,version=3)['id'];self.assertEqual(self.row(revision)['status'],'Draft');self.assertEqual(self.row(rid)['status'],'Approved')
  def test_project_permissions_rename_and_archive(self):
-  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='Report project',customer='Test',po_number='PO-R',quantity=1,due='2026-12-01',route='Fabrication only',file=dict(name='po.txt',content='UE8=')),self.users['Admin']))
+  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='Report project',customer='Test',po_number='PO-R',quantity=1,due='2026-12-01',route='Fabrication only',drawing_file=dict(name='drawing.txt',content='RFJBV0lORw=='),file=dict(name='po.txt',content='UE8=')),self.users['Admin']))
   jid=self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0]['id']);rid=self.create(job_id=jid);row=self.row(rid)
   row['model']['sheets'][1]['name']='Renamed';self.call('Store','save',id=rid,version=1,model=row['model']);self.assertEqual(sheet.calculate(self.row(rid)['model'])['s1']['B5'],14)
   self.store.run(lambda c:c.update('work_jobs',{'id':jid},{'assignments':{'QC':999}}))
@@ -85,7 +85,7 @@ class WorkshopWorkflowTests(unittest.TestCase):
 
  def test_batch_upload_review_evidence_and_zip(self):
   admin=self.users['Admin'];reviewer=self.users['QC'];author=self.users['Store']
-  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='Upload project',customer='Test',po_number='PO-U',quantity=1,due='2026-12-01',route='Fabrication only',file=dict(name='po.txt',content='UE8=')),admin))
+  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='Upload project',customer='Test',po_number='PO-U',quantity=1,due='2026-12-01',route='Fabrication only',drawing_file=dict(name='drawing.txt',content='RFJBV0lORw=='),file=dict(name='po.txt',content='UE8=')),admin))
   jid=self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0]['id'])
   self.store.run(lambda c:qc.create_batch(c,dict(job_id=jid,drawing='ANY-01',thickness='20mm',quantity=1,planned_date='2026-12-01'),admin))
   def batch():return self.store.run(lambda c:c.all('qc_batches',{'job_id':jid})[0])

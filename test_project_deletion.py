@@ -9,7 +9,7 @@ class ProjectDeletionTests(unittest.TestCase):
   self.admin=dict(id=1,name='Admin',role='Admin');self.other=dict(id=2,name='Other Admin',role='Admin')
   def create(c):
    for title in ('Delete me','Keep me'):
-    project_flow.create(c,dict(plant_id='solu',title=title,customer='Customer',po_number='PO',quantity=1,due='2026-12-01',route='Fabrication only',file=dict(name='po.pdf',content=base64.b64encode(b'Original PO').decode())),self.admin)
+    project_flow.create(c,dict(plant_id='solu',title=title,customer='Customer',po_number='PO',quantity=1,due='2026-12-01',route='Fabrication only',drawing_file=dict(name='drawing.txt',content='RFJBV0lORw=='),file=dict(name='po.pdf',content=base64.b64encode(b'Original PO').decode())),self.admin)
    pid=c.insert('products',name='Steel',sku='TEST',stock=8,unit='kg',price=20)
    for jid in (1,2):
     rid=c.insert('requirements',job_id=jid,product_id=pid,quantity=2,issued=2)
@@ -39,7 +39,7 @@ class ProjectDeletionTests(unittest.TestCase):
  def rows(self,t):return self.store.run(lambda c:c.all(t,sort=[('id',1)]))
  def test_archive_all_records_chunked_and_cascade_preserves_other_project_and_books(self):
   payload=os.urandom(700000)
-  self.store.run(lambda c:c.insert('job_documents',job_id=1,kind='TC',name='../unsafe/TC.pdf',content=payload))
+  document_id=self.store.run(lambda c:c.insert('job_documents',job_id=1,kind='TC',name='../unsafe/TC.pdf',content=payload))
   def queue(c):
    oid=c.insert('dispatch_outbox',job_id=1,status='Queued',recipient='test@example.invalid')
    c.insert('dispatch_archives',outbox_id=oid,chunk=0,content=b'previous dispatch archive')
@@ -49,7 +49,7 @@ class ProjectDeletionTests(unittest.TestCase):
   self.part(meta,0)
   with self.assertRaises(ValueError):self.delete(meta)
   archive=zipfile.ZipFile(io.BytesIO(self.download(meta)))
-  self.assertEqual(archive.read('documents/3-TC.pdf'),payload)
+  self.assertEqual(archive.read(f'documents/{document_id}-TC.pdf'),payload)
   for path in ('qc_reports.json','qc_batches.json','qc_trace_lots.json','qc_audit.json','project.json','work_history.json','project_requests.json','project_messages.json','inspection_calls.json','material_issues.json','reports/project-report.html','reports/work_history.csv','dispatch-archives/1.zip'):self.assertIn(path,archive.namelist())
   self.assertEqual(json.loads(archive.read('project_requests.json'))[0]['review_notes'],'QC approved')
   self.assertTrue(archive.read('report-workshop/1-original.xlsx').startswith(b'PK'))
@@ -58,7 +58,7 @@ class ProjectDeletionTests(unittest.TestCase):
   result=self.delete(meta,request_id='delete-once',return_state=True);self.assertTrue(result['ok']);self.assertNotIn(1,[j['id'] for j in result['state']['work_jobs']])
   self.assertTrue(self.delete(meta,request_id='delete-once')['duplicate'])
   for t in deletion.OWNED:
-   if t!='dispatch_outbox':self.assertEqual(len(self.rows(t)),1,t)
+   if t!='dispatch_outbox':self.assertEqual(len(self.rows(t)),2 if t=='job_documents' else 1,t)
   self.assertEqual([j['id'] for j in self.rows('work_jobs')],[2]);self.assertEqual(len(self.rows('material_issues')),1);self.assertEqual(len(self.rows('alert_reads')),1)
   for t in ('dispatch_archives','dispatch_outbox','project_delete_exports','project_delete_parts'):self.assertEqual(self.rows(t),[])
   for t,rows in before.items():self.assertEqual(self.rows(t),rows)

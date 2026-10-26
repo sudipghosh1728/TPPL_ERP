@@ -1,21 +1,45 @@
 """Dispatch-lot design planning and material visibility; existing stock stays authoritative."""
 import math,uuid
-import access,manufacturing as m,project_flow as p,qc_ops as q
+import access,manufacturing as m,project_flow as p,qc_ops as q,dispatch_structure as ds
 from storage import identifier
 
 def dispatch_lot(c,d,user):
  access.require(user,('Design',));j=p.project(c,d,user);m.version(j,d);p.open_job(j)
  lots=j.get('dispatch_lots',[]);lid=str(d.get('lot_id') or uuid.uuid4().hex)
  if d.get('lot_id') and not any(l['id']==lid for l in lots):raise ValueError('Choose an existing dispatch lot to update')
- row=dict(id=lid,name=m.text(d,'name')[:100],quantity=m.whole(d.get('quantity')),date=p.date(d.get('date')))
+ previous=next((l for l in lots if l['id']==lid),{})
+ basis=d.get('quantity_basis',previous.get('quantity_basis','pieces'))
+ if basis not in ('assemblies','pieces'):raise ValueError('Choose finished assemblies or individual parts')
+ row={**previous,**dict(id=lid,name=m.text(d,'name')[:100],quantity=m.whole(d.get('quantity')),date=p.date(d.get('date')),quantity_basis=basis)}
  if sum(r['quantity'] for r in lots if r['id']!=lid)+row['quantity']>j['quantity']:raise ValueError('Dispatch quantities exceed the PO quantity')
  batches=c.all('qc_batches',{'job_id':j['id'],'lot_id':lid})
- if sum(b['quantity'] for b in batches)>row['quantity']:raise ValueError('Dispatch quantity cannot be below its planned drawing quantities')
+ if (batches or previous.get('work_items')) and basis!=previous.get('quantity_basis','pieces'):raise ValueError('Quantity basis cannot change after jobs or drawings have been planned')
+ if ds.assemblies(row):
+  if sum(i['quantity'] for i in row.get('work_items',[]) if not i.get('parent_id'))>row['quantity']:raise ValueError('Dispatch quantity cannot be below its planned assemblies')
+ elif sum(b['quantity'] for b in batches)>row['quantity']:raise ValueError('Dispatch quantity cannot be below its planned drawing quantities')
  if any(b.get('actual_date') for b in batches):raise ValueError('A dispatched lot cannot be rescheduled')
  for b in batches:
   c.update('qc_batches',{'id':b['id']},{'planned_date':row['date']},inc={'version':1})
  c.update('work_jobs',{'id':j['id']},{'dispatch_lots':[r for r in lots if r['id']!=lid]+[row]})
- p.record(c,j,user,'Dispatch lot planned',row['name']+' · '+str(row['quantity'])+' pieces · '+row['date'])
+ p.record(c,j,user,'Dispatch lot planned',row['name']+' · '+str(row['quantity'])+' '+basis+' · '+row['date'])
+
+def work_item(c,d,user):
+ access.require(user,('Design',));j=p.project(c,d,user);m.version(j,d);p.open_job(j)
+ lots=j.get('dispatch_lots',[]);lot=next((l for l in lots if l['id']==d.get('lot_id')),None)
+ if not lot or not ds.assemblies(lot):raise ValueError('Choose a dispatch lot measured in finished assemblies')
+ if c.one('qc_batches',{'job_id':j['id'],'lot_id':lot['id'],'actual_date':{'$nin':['',None]}}):raise ValueError('A lot with dispatched drawings cannot be changed')
+ items=lot.get('work_items',[]);parent=d.get('parent_id') or None
+ if len(items)>=200:raise ValueError('Use at most 200 jobs per dispatch')
+ if parent:
+  ds.item_context(lot,parent)
+ name=m.text(d,'name')[:100];quantity=m.whole(d.get('quantity'))
+ if any(i.get('parent_id')==parent and i['name'].casefold()==name.casefold() for i in items):raise ValueError('Use a unique job name under this parent')
+ if not parent and sum(i['quantity'] for i in items if not i.get('parent_id'))+quantity>lot['quantity']:raise ValueError('Job quantities exceed the finished assemblies in this dispatch')
+ item=dict(id=uuid.uuid4().hex,parent_id=parent,name=name,quantity=quantity)
+ lot={**lot,'work_items':items+[item]};total,path=ds.item_context(lot,item['id'])
+ c.update('work_jobs',{'id':j['id']},{'dispatch_lots':[lot if l['id']==lot['id'] else l for l in lots],'final_inspection':False})
+ p.record(c,j,user,'Dispatch job planned',path+' · '+str(total)+' units in dispatch')
+ return item['id']
 
 def dim(d,key,required=False):
  try:v=float(d.get(key) or 0)
@@ -71,4 +95,4 @@ def extract_po(c,d,user):
  c.update('work_jobs',{'id':j['id']},{'po_spec_suggestions':suggestion,**({'po_specs':suggestion} if not j.get('po_specs') else {})})
  p.record(c,j,user,'PO extraction refreshed','Review the painting and material suggestions against the original PO')
 
-HANDLERS={'extract-po':extract_po,'dispatch-lot':dispatch_lot,'drawing-requirement':requirement,'cut-material':cut,'specifications':specifications}
+HANDLERS={'work-item':work_item,'extract-po':extract_po,'dispatch-lot':dispatch_lot,'drawing-requirement':requirement,'cut-material':cut,'specifications':specifications}

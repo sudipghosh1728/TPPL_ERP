@@ -230,14 +230,14 @@ def state(c,data,user):
     data['dispatch_alerts']=alerts(c,data.get('work_jobs',[]),user)
 
 def alerts(c,jobs,user):
-    import manufacturing
+    import manufacturing,dispatch_structure
     owners={'Design review':'Design','QC approval':'QC','QC inspection':'QC','Store issue':'Store','Fabrication execution':'Fabrication','Machining execution':'Machining','Packing & dispatch':'Fabrication','Admin review':'Admin','Accounts review':'Accounts','Maintenance review':'Maintenance','HR review':'HR'}
     read={r['key'] for r in c.all('alert_reads',{'user_id':user['id']})}
     result=[]
     batches=c.all('qc_batches',{'job_id':{'$in':[j['id'] for j in jobs if j.get('dispatch_lots')]}}) if any(j.get('dispatch_lots') for j in jobs) else []
     for j in jobs:
         due=j.get('revised_due') or j.get('due')
-        pending_lots=[l for l in j.get('dispatch_lots',[]) if sum(b['quantity'] for b in batches if b.get('lot_id')==l['id'] and b.get('actual_date'))<l['quantity']]
+        pending_lots=[l for l in j.get('dispatch_lots',[]) if not dispatch_structure.dispatched(l,[b for b in batches if b['job_id']==j['id']])]
         if pending_lots:due=min(l['date'] for l in pending_lots)
         if not manufacturing.visible(j,user) or j.get('stage')=='Completed' or not due:continue
         roles={'Design',owners.get(j['stage'])}

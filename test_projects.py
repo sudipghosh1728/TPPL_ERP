@@ -16,7 +16,7 @@ class PlantProjectsTests(unittest.TestCase):
   if d.get('job_id') and 'version' not in d:d['version']=self.job(d['job_id'])['version']
   with patch('server.access.current',return_value=self.users[role]):return self.store.run(lambda c:server.write_response(c,'/api/'+path,d,None,'local'))
  def create(self,plant='talawade',route='Fabrication + machining'):
-  self.call('Design','projects/create',plant_id=plant,title='Test project',customer='Test',po_number='PO-1',quantity=3,due='2026-12-31',route=route,file=self.file())
+  self.call('Design','projects/create',plant_id=plant,title='Test project',customer='Test',po_number='PO-1',quantity=3,due='2026-12-31',route=route,drawing_file=dict(name='drawing.txt',content='RFJBV0lORw=='),file=self.file())
   return self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0]['id'])
  def approve(self,jid):
   r=next(r for r in self.rows('project_requests',jid) if r['status']=='Pending')
@@ -130,7 +130,8 @@ class PlantProjectsTests(unittest.TestCase):
   self.call('Store','projects/attach',job_id=jid,kind='EWAY challan',file=self.file('dispatch.pdf'))
   self.call('Fabrication','projects/action',job_id=jid,action='dispatch',notes='Done')
   before=self.store.run(lambda c:pf.archive(c,jid,self.users['Admin']))['_download']['content']
-  self.call('Design','projects/attach',job_id=jid,kind='TC',file=self.file('late-tc.pdf'))
+  with self.assertRaises(ValueError):self.call('Design','projects/attach',job_id=jid,kind='TC',file=self.file('late-tc.pdf'))
+  self.call('Design','projects/attach',job_id=jid,kind='Supporting',file=self.file('late-note.pdf'))
   after=self.store.run(lambda c:pf.archive(c,jid,self.users['Admin']))['_download']['content']
   self.assertEqual(before,after)
   z=zipfile.ZipFile(io.BytesIO(after));self.assertNotIn('price',json.loads(z.read('materials.json'))[0])

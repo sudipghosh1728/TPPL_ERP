@@ -10,3 +10,5 @@
 @media(max-width:800px){#project-plant{margin:8px 12px}#project-plant select{max-width:440px}.project-summary{grid-template-columns:1fr 1fr;padding:17px;gap:16px}.project-strip{align-items:flex-start;flex-direction:column}.project-actions .primary,.project-actions .secondary{white-space:normal}.project-document-list article{align-items:flex-start;flex-direction:column}.project-tabs button{padding:10px}}
 
 .project-delete-panel{padding:24px;margin-top:28px;border-color:#e4b9b9}.project-delete-panel p{margin:12px 0}.project-delete-panel button{color:#a52626}#delete-project-form>p{margin:16px 0}#delete-confirmation{border:1px solid #e1e6e2;border-radius:8px;padding:16px;margin-top:20px}#delete-confirmation>label{display:block;margin:12px 0}#confirm-delete-project{background:#a52626}
+
+#drawing-rows fieldset{min-width:0;border:1px solid #d5e1da;border-radius:10px;padding:18px;margin:16px 0;display:grid;gap:12px}#drawing-rows legend{padding:0 8px;font-weight:600}#drawing-rows output{display:block;color:#17664f;font-weight:600}#drawing-rows input[type=checkbox]{width:auto}#drawing-quantity-help{margin:14px 0;line-height:1.6}

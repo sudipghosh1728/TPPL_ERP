@@ -16,7 +16,7 @@ def provision(c):
   users[role]=access.public(row)
  if c.one('settings',{'key':'plant_preview_seeded'}):return
  for index,plant in enumerate(pf.PLANTS):
-  pf.create(c,dict(plant_id=plant['id'],title='Demo · '+['Base frame','Machined housing','Support assembly','Precision plate'][index],customer='Preview customer — not live data',po_number='DEMO-PO-'+str(index+1),quantity=2,due='2026-12-31',route='Fabrication + machining' if index%2 else 'Fabrication only',file=dict(name='demo-po.txt',content=base64.b64encode(b'LOCAL DEMO ONLY - not a customer purchase order').decode())),users['Design'])
+  pf.create(c,dict(plant_id=plant['id'],title='Demo · '+['Base frame','Machined housing','Support assembly','Precision plate'][index],customer='Preview customer — not live data',po_number='DEMO-PO-'+str(index+1),quantity=2,due='2026-12-31',route='Fabrication + machining' if index%2 else 'Fabrication only',drawing_file=dict(name='drawing.txt',content='RFJBV0lORw=='),file=dict(name='demo-po.txt',content=base64.b64encode(b'LOCAL DEMO ONLY - not a customer purchase order').decode())),users['Design'])
   j=c.all('work_jobs',sort=[('id',-1)])[0]
   pf.requirement(c,dict(job_id=j['id'],version=j['version'],product_id=1,quantity=2,material_group='Raw material'),users['Design'])
   j=c.one('work_jobs',{'id':j['id']})

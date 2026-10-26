@@ -57,7 +57,7 @@ class QCWorkflowTests(unittest.TestCase):
  def setUp(self):
   self.store=test_store();self.store.prepare();self.store.run(lambda c:seed.initialize(c,demo=True));self.old=server.STORE;server.STORE=self.store
   self.users={role:dict(id=i+1,name=role+' employee',role=role,username=role.lower(),active=1) for i,role in enumerate(access.ROLES)}
-  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='QC project',customer='Test customer',po_number='PO-QC',quantity=200,due='2026-12-01',route='Fabrication only',file=dict(name='po.txt',content='UE8=')),self.users['Admin']))
+  self.store.run(lambda c:pf.create(c,dict(plant_id='solu',title='QC project',customer='Test customer',po_number='PO-QC',quantity=200,due='2026-12-01',route='Fabrication only',drawing_file=dict(name='drawing.txt',content='RFJBV0lORw=='),file=dict(name='po.txt',content='UE8=')),self.users['Admin']))
   self.jid=self.store.run(lambda c:c.all('work_jobs',sort=[('id',-1)])[0]['id'])
  def tearDown(self):server.STORE=self.old;clean(self.store)
  def rows(self,name):return self.store.run(lambda c:c.all(name,{'job_id':self.jid},sort=[('id',1)]))
