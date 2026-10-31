@@ -15,7 +15,7 @@ async function load(){const r=await fetch('/api/state',{signal:AbortSignal.timeo
 
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),3500)}
 
-async function post(path,data){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({return_state:true,request_id:crypto.randomUUID(),...data})});const result=await r.json();if(!r.ok)throw Error(result.error);if(result.state)applyWorkspace(result.state);else await load();toast('Changes saved successfully')}
+async function post(path,data){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({return_state:true,request_id:crypto.randomUUID(),...data})});const result=await r.json();if(!r.ok)throw Error(result.error);if(result.state)applyWorkspace(result.state);else await load();toast('Changes saved successfully');return result}
 
 function button(label,action,secondary=false){return `<button class="${secondary?'secondary':'primary'}" data-action="${action}">${label}</button>`}
 

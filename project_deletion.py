@@ -4,6 +4,7 @@ import access,manufacturing as m
 from storage import identifier
 
 CHUNK_SIZE=512*1024
+DELETION_RECIPIENT='ayush@tpplpune.com'
 OWNED=('qc_batches','qc_reports','qc_trace_lots','qc_imports','qc_audit','reminders','requirements','work_history','project_messages','project_requests','inspection_calls','project_notifications','dispatch_outbox','job_documents')
 OWNED+=('report_workbooks','report_workbook_audit')
 def now():return dt.datetime.now(dt.timezone.utc)
@@ -70,7 +71,7 @@ def prepare(c,d,user):
  count=(len(packet)+CHUNK_SIZE-1)//CHUNK_SIZE
  eid=c.insert('project_delete_exports',job_id=jid,user_id=user['id'],token_hash=hashlib.sha256(token.encode()).hexdigest(),snapshot=digest,expires_at=expires,parts=count,downloaded=[])
  for part in range(count):c.insert('project_delete_parts',export_id=eid,part=part,content=packet[part*CHUNK_SIZE:(part+1)*CHUNK_SIZE],expires_at=expires)
- return dict(token=token,parts=count,bytes=len(packet),sha256=hashlib.sha256(packet).hexdigest(),filename=reference(jid)+'-complete-project.zip')
+ return dict(token=token,parts=count,bytes=len(packet),sha256=hashlib.sha256(packet).hexdigest(),filename=reference(jid)+'-complete-project.zip',email_recipient=DELETION_RECIPIENT)
 
 def grant(c,token,user):
  access.require(user)
@@ -93,9 +94,25 @@ def delete(c,d,user):
  if d.get('download_confirmed') is not True or d.get('confirmation')!=reference(jid):raise ValueError('Confirm you saved the ZIP and type '+reference(jid))
  data,queries,digest=snapshot(c,jid,user)
  if digest!=row['snapshot']:raise ValueError('Project changed after the ZIP was prepared. Download a fresh ZIP before deleting.')
+ chunks=c.all('project_delete_parts',{'export_id':row['id']},sort=[('part',1)])
+ if len(chunks)!=row['parts']:raise ValueError('Archive expired. Download a fresh ZIP before deleting.')
  c.touch('work_jobs',jid)
  for name,query in queries.items():c.delete(name,query)
  remove_exports(c,{'job_id':jid});c.delete('work_jobs',{'id':jid})
- # A minimal company-wide deletion receipt; no project documents or project payload remains.
- c.insert('activity',message=reference(jid)+' deleted by Admin after archive download',actor_id=user['id'],date=m.now(),archive_sha256=digest)
- return {'ok':True}
+ # Keep only the immutable mail attachment until SMTP acceptance is recorded.
+ oid=c.insert('dispatch_outbox',job_id=jid,kind='Project deletion',project_title=data['project']['title'],recipient=DELETION_RECIPIENT,status='Queued',created_at=m.now(),deleted_by=user['name'],archive_sha256=hashlib.sha256(b''.join(bytes(r['content']) for r in chunks)).hexdigest())
+ for r in chunks:c.insert('dispatch_archives',outbox_id=oid,chunk=r['part'],content=r['content'])
+ c.insert('activity',message=reference(jid)+' deleted after archive download; deletion archive email queued to '+DELETION_RECIPIENT,actor_id=user['id'],date=m.now(),archive_sha256=digest,mail_outbox_id=oid)
+ return {'ok':True,'_mail_outbox_id':oid}
+
+def retry_mail(c,d,user):
+ access.require(user);oid=identifier(d.get('id'));row=c.one('dispatch_outbox',{'id':oid,'kind':'Project deletion'})
+ if not row:raise ValueError('Deletion email receipt not found')
+ if row['status']=='Sent':return {'ok':True,'deletion_mail_status':'Sent'}
+ if row['status']=='Sending':
+  started=dt.datetime.fromisoformat(row['started_at'])
+  if started.tzinfo is None:started=started.replace(tzinfo=dt.timezone.utc)
+  if now()-started<dt.timedelta(minutes=5) or d.get('delivery_checked') is not True:raise ValueError('Delivery is in progress or interrupted. Wait five minutes and check the mail provider before retrying.')
+ if row['status']=='Needs review' and d.get('delivery_checked') is not True:raise ValueError('Check with the mail provider that this message was not accepted before retrying')
+ c.update('dispatch_outbox',{'id':oid},{'status':'Queued','retried_by':user['id']})
+ return {'ok':True,'_mail_outbox_id':oid}

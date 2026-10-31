@@ -357,5 +357,6 @@ def state(c,data,user):
  data['project_notifications']=c.all('project_notifications',{} if user['role'] in ('Admin','Purchase') else {'roles':user['role']},sort=[('id',-1)])[:200] if user else []
  data['maintenance_tickets']=c.all('maintenance_tickets',{} if user['role'] in ('Admin','Purchase','QC','Maintenance') else {'created_by':user['id']},sort=[('id',-1)])
  data['archive_recipient']=(c.one('settings',{'key':'archive_recipient'}) or {}).get('value','sudipghosh1728@gmail.com') if user['role'] in ('Admin','Purchase') else ''
+ data['deletion_mails']=c.all('dispatch_outbox',{'kind':'Project deletion'},projection={'id':1,'job_id':1,'project_title':1,'recipient':1,'status':1,'created_at':1,'sent_at':1},sort=[('id',-1)])[:50] if user['role'] in ('Admin','Purchase') else []
 
 HANDLERS={'create':create,'edit':edit,'attach':attach,'delete-document':delete_document,'requirement':requirement,'issue':issue,'submit':submit,'request':direct_request,'complete-request':complete_request,'urgency':urgency,'decide':decide,'action':action,'inspection':inspection,'chat':chat,'maintenance':maintenance,'archive-settings':archive_settings}

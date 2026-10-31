@@ -4,6 +4,7 @@ import server
 from mongo_test_support import test_store,clean
 
 def main():
+    os.environ['ARCHIVE_MAIL_ENABLED']='false'
     with tempfile.TemporaryDirectory() as temp:
         server.STORE=test_store();server.initialize(migrate_local=False,demo=os.environ.get("ERP_TEST_CLEAN")!="1")
         if os.environ.get('ERP_TEST_CATALOG')=='1':

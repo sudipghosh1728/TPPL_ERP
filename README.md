@@ -196,3 +196,6 @@ Local-only plant/QC preview: see [LOCAL_PREVIEW.md](LOCAL_PREVIEW.md) for startu
 
 
 QC dispatch tracking and report preparation for all departments: see [QC_OPERATIONS.md](QC_OPERATIONS.md) for drawing batches, material traceability, Excel imports, QC approval and PDF/Excel/ZIP exports.
+
+
+Automatic project-deletion archive email: see [DELETION_EMAIL.md](DELETION_EMAIL.md).

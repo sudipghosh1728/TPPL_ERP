@@ -1,6 +1,6 @@
 import base64,datetime as dt,hashlib,io,json,os,unittest,zipfile
 from unittest.mock import patch
-import access,project_deletion as deletion,project_flow,seed,server,report_sheet
+import access,project_deletion as deletion,project_flow,seed,server,report_sheet,send_dispatch_mail
 from mongo_test_support import test_store,clean
 
 class ProjectDeletionTests(unittest.TestCase):
@@ -60,7 +60,9 @@ class ProjectDeletionTests(unittest.TestCase):
   for t in deletion.OWNED:
    if t!='dispatch_outbox':self.assertEqual(len(self.rows(t)),2 if t=='job_documents' else 1,t)
   self.assertEqual([j['id'] for j in self.rows('work_jobs')],[2]);self.assertEqual(len(self.rows('material_issues')),1);self.assertEqual(len(self.rows('alert_reads')),1)
-  for t in ('dispatch_archives','dispatch_outbox','project_delete_exports','project_delete_parts'):self.assertEqual(self.rows(t),[])
+  for t in ('project_delete_exports','project_delete_parts'):self.assertEqual(self.rows(t),[])
+  outbox=self.rows('dispatch_outbox');self.assertEqual(len(outbox),1);self.assertEqual(outbox[0]['recipient'],'ayush@tpplpune.com');self.assertEqual(outbox[0]['kind'],'Project deletion')
+  self.assertEqual(b''.join(bytes(r['content']) for r in self.rows('dispatch_archives')),archive.fp.getvalue())
   for t,rows in before.items():self.assertEqual(self.rows(t),rows)
  def test_permissions_user_bound_token_expiry_and_confirmation(self):
   meta=self.prepare()
@@ -92,11 +94,48 @@ class ProjectDeletionTests(unittest.TestCase):
   with patch.object(UnitOfWork,'delete',failing):
    with self.assertRaisesRegex(ValueError,'Simulated'):self.delete(meta)
   self.assertEqual(len(self.rows('requirements')),2);self.assertEqual(len(self.rows('work_jobs')),2)
+  self.assertEqual(self.rows('dispatch_outbox'),[])
   self.delete(meta);self.assertEqual(len(self.rows('work_jobs')),1)
  def test_inflight_email_blocks_deletion(self):
   meta=self.prepare();self.download(meta)
   self.store.run(lambda c:c.insert('dispatch_outbox',job_id=1,status='Sending'))
   with self.assertRaisesRegex(ValueError,'in progress'):self.delete(meta)
   with self.assertRaisesRegex(ValueError,'in progress'):self.prepare()
+
+ def test_deletion_http_sends_after_commit_once_and_purges_attachment(self):
+  import threading,urllib.request
+  meta=self.prepare();packet=self.download(meta)
+  settings=dict(ARCHIVE_MAIL_ENABLED='true',SMTP_HOST='mail.example.invalid',SMTP_PORT='465',SMTP_USER='fixture',SMTP_PASSWORD='fixture',SMTP_FROM='erp@example.invalid')
+  http=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler);threading.Thread(target=http.serve_forever,daemon=True).start()
+  payload=dict(job_id=1,export_token=meta['token'],download_confirmed=True,confirmation='JOB-0001',request_id='http-delete',return_state=True)
+  def request():
+   req=urllib.request.Request(f'http://127.0.0.1:{http.server_port}/api/projects/delete',data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
+   with urllib.request.urlopen(req) as r:return json.load(r)
+  try:
+   with patch('server.access.current',return_value=self.admin),patch('send_dispatch_mail.configuration',return_value=settings),patch('send_dispatch_mail.smtplib.SMTP_SSL') as smtp:
+    sent=[]
+    def send(msg):
+     self.assertFalse(self.store.run(lambda c:c.one('work_jobs',{'id':1})));sent.append(msg);return {}
+    smtp.return_value.__enter__.return_value.send_message.side_effect=send
+    response=request();self.assertEqual(response['deletion_mail_status'],'Sent');self.assertNotIn('_mail_outbox_id',response)
+    self.assertEqual(response['state']['deletion_mails'][0]['status'],'Sent')
+    self.assertTrue(request()['duplicate']);self.assertEqual(len(sent),1)
+    self.assertEqual(sent[0]['To'],'ayush@tpplpune.com');self.assertIn('Project deleted',sent[0]['Subject'])
+    self.assertEqual(next(sent[0].iter_attachments()).get_payload(decode=True),packet)
+   self.assertEqual(self.rows('dispatch_archives'),[]);self.assertEqual(self.rows('dispatch_outbox')[0]['status'],'Sent')
+  finally:http.shutdown();http.server_close()
+
+ def test_disabled_failed_and_retried_email_keeps_archive_private(self):
+  meta=self.prepare();self.download(meta);result=self.delete(meta);oid=result['_mail_outbox_id']
+  with patch('send_dispatch_mail.configuration',return_value={}):send_dispatch_mail.deliver_after_commit(self.store,result)
+  self.assertEqual(result['deletion_mail_status'],'Queued');self.assertTrue(self.rows('dispatch_archives'))
+  settings=dict(ARCHIVE_MAIL_ENABLED='true',SMTP_HOST='fixture',SMTP_USER='fixture',SMTP_PASSWORD='fixture',SMTP_FROM='erp@example.invalid')
+  def fail(msg):raise ConnectionError('Uncertain acceptance')
+  self.assertEqual(send_dispatch_mail.send_next(self.store,settings,fail,outbox_id=oid),'Needs review');self.assertTrue(self.rows('dispatch_archives'))
+  with self.assertRaises(ValueError):self.call('retry-deletion-mail',dict(id=oid))
+  with self.assertRaises(access.AccessError):self.call('retry-deletion-mail',dict(id=oid,delivery_checked=True),dict(id=3,role='Design',name='Design'))
+  self.call('retry-deletion-mail',dict(id=oid,delivery_checked=True));sent=[]
+  self.assertEqual(send_dispatch_mail.send_next(self.store,settings,sent.append,outbox_id=oid),'Sent');self.assertEqual(len(sent),1)
+  self.assertEqual(send_dispatch_mail.send_next(self.store,settings,sent.append,outbox_id=oid),'Empty');self.assertEqual(self.rows('dispatch_archives'),[])
 
 if __name__=='__main__':unittest.main()

@@ -1,5 +1,5 @@
 """Isolated local TPPL + GREY one preview. Never reads Atlas or sends email."""
-import argparse, base64
+import argparse, base64,os
 from pymongo import MongoClient
 import server,access,project_flow as pf
 from storage import MongoStore
@@ -27,6 +27,7 @@ def provision(c):
  c.insert('settings',key='plant_preview_seeded',value=True)
 
 if __name__=='__main__':
+ os.environ['ARCHIVE_MAIL_ENABLED']='false'
  parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8001);args=parser.parse_args()
  http=server.ThreadingHTTPServer(('127.0.0.1',args.port),server.Handler)
  server.STORE=MongoStore(MongoClient('mongodb://127.0.0.1:27018/?replicaSet=tppl-test',serverSelectionTimeoutMS=5000),'grey_plants_preview')

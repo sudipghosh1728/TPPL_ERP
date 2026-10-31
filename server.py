@@ -253,6 +253,7 @@ def write_api(c,path,d,cookie,ip):
     if path=='/api/qc/preview':return qc_ops.preview(c,d,user)
     if path=='/api/projects/delete-export':return project_deletion.prepare(c,d,user)
     if path=='/api/projects/delete':return project_deletion.delete(c,d,user)
+    if path=='/api/projects/retry-deletion-mail':return project_deletion.retry_mail(c,d,user)
 
     work={'create':manufacturing.create,'attach':manufacturing.attach,'requirement':manufacturing.requirement,'transition':manufacturing.transition,'issue':manufacturing.issue}
 
@@ -459,6 +460,12 @@ class Handler(SimpleHTTPRequestHandler):
 
             started=time.perf_counter()
             result=STORE.run(lambda c:write_response(c,urlparse(self.path).path,d,self.headers.get('Cookie'),self.client_address[0]))
+            if '_mail_outbox_id' in result:
+                import send_dispatch_mail
+                send_dispatch_mail.deliver_after_commit(STORE,result)
+                if result.get('state'):
+                    for receipt in result['state'].get('deletion_mails',[]):
+                        if receipt['id']==result.get('deletion_mail_id'):receipt['status']=result['deletion_mail_status']
             self.api_elapsed=(time.perf_counter()-started)*1000
 
             cookie=result.pop('_cookie',None);status=result.pop('_status',200)
