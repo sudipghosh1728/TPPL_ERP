@@ -14,7 +14,7 @@ Open **Design & material planning** from any department, or from a project overv
 | Tapping, Finishing, Blasting, Primer & Engraving, Final Paint, Packing | Fabrication |
 | QC and Final QC | QC |
 
-Admin and Purchase can update any process. Permissions are enforced by the API as well as the form. Final QC retains traceability, certificate and approved-report requirements. A scheduled lot can complete Final QC, packing and dispatch while other lots remain pending. Project completion still requires every planned quantity and batch to be complete. Dispatch reminders use the earliest incomplete lot date.
+QC, Admin and Purchase can update any process using **QC dispatch & reports → Open drawing batch → Update all process quantities**. QC retains the project's assigned-person restrictions; other departments update their own processes. Every changed stage records who updated it and their department. Permissions are enforced by the API as well as the form. Final QC retains traceability, certificate and approved-report requirements. A scheduled lot can complete Final QC, packing and dispatch while other lots remain pending. Project completion still requires every planned quantity and batch to be complete. Dispatch reminders use the earliest incomplete lot date.
 
 ## PO specifications
 

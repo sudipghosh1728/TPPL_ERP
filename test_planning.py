@@ -87,11 +87,25 @@ class PlanningTests(unittest.TestCase):
   bid=self.drawing(qty=160)
   for step,owner in q.PROCESS_OWNERS.items():
    b=self.batch(bid);steps=copy.deepcopy(b['steps']);steps[step]=dict(status='In progress',quantity=1,notes='Started')
-   wrong='QC' if owner!='QC' else 'Design'
+   wrong='Store'
    with self.assertRaises(access.AccessError):self.call(q.save_steps,wrong,batch_id=bid,version=b['version'],steps=steps,notes='Forbidden')
    self.call(q.save_steps,owner,batch_id=bid,version=b['version'],steps=steps,notes='Department update')
    self.assertEqual(self.batch(bid)['step_updates'][step]['department'],owner)
   with self.assertRaises(access.AccessError):self.call(q.create_batch,'QC',job_id=self.jid,drawing='Wrong',quantity=1,thickness='20',planned_date='2026-12-01')
+ def test_qc_updates_every_process_with_assignment_and_release_checks(self):
+  bid=self.drawing(qty=10)
+  steps={s:dict(status='In progress',quantity=1,notes='QC verified progress') for s in q.x.STEPS}
+  self.call(q.save_steps,'QC',batch_id=bid,version=self.batch(bid)['version'],steps=steps,notes='Verified all departments')
+  b=self.batch(bid);self.assertEqual(b['steps'],steps)
+  self.assertTrue(all(v['department']=='QC' and v['by']==self.users['QC']['name'] for v in b['step_updates'].values()))
+  with self.assertRaisesRegex(ValueError,'changed'):self.call(q.save_steps,'QC',batch_id=bid,version=b['version']-1,steps=steps,notes='Stale')
+  invalid=copy.deepcopy(steps);invalid['Cutting']['quantity']=11
+  with self.assertRaisesRegex(ValueError,'within batch'):self.call(q.save_steps,'QC',batch_id=bid,version=b['version'],steps=invalid,notes='Too many')
+  done={s:dict(status='Done',quantity=10,notes='Done') for s in q.x.STEPS};done['Packing']=steps['Packing']
+  with self.assertRaisesRegex(ValueError,'Attach Drawing'):self.call(q.save_steps,'QC',batch_id=bid,version=b['version'],steps=done,notes='Missing evidence')
+  self.store.run(lambda c:c.update('work_jobs',{'id':self.jid},{'assignments':{'QC':9999}}))
+  with self.assertRaises(access.AccessError):self.call(q.save_steps,'QC',batch_id=bid,version=b['version'],steps=steps,notes='Another assignee')
+  self.assertEqual(self.batch(bid)['version'],b['version'])
  def test_po_extraction_and_any_user_review(self):
   bid=self.drawing(qty=1)
   specs=self.job()['po_specs'];self.assertIn('RAL 7035',specs['painting']);self.assertIn('IS 2062',specs['material']);self.assertEqual(specs['status'],'Review required')

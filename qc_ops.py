@@ -106,7 +106,7 @@ def save_steps(c,d,user):
  cleaned={}
  for s in x.STEPS:
   v=steps[s]
-  if v!=b['steps'][s]:access.require(user,(PROCESS_OWNERS[s],))
+  if v!=b['steps'][s]:access.require(user,(PROCESS_OWNERS[s],'QC'))
   status=v.get('status');qty=v.get('quantity');notes=str(v.get('notes','')).strip()[:1000]
   if status not in ('Pending','In progress','Done','NA','Rework'):raise ValueError('Invalid process status')
   if isinstance(qty,bool) or not isinstance(qty,int) or not 0<=qty<=b['quantity']:raise ValueError('Stage quantity must be a whole number within batch quantity')
