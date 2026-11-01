@@ -4,7 +4,9 @@ permissions:
   contents: read
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    # MongoDB 8 startup is blocked on the newer runner kernel (SERVER-125742).
+    # Keep the test replica set on the 22.04 runner's 6.8 kernel until compatible.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
