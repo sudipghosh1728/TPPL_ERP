@@ -102,3 +102,30 @@ class OffloadTests(unittest.TestCase):
                 if allowed:self.assertFalse(self.store.run(lambda c:server.read_api(c,'/api/file-storage/status',None))['configured'])
                 else:
                     with self.assertRaises(access.AccessError):self.store.run(lambda c:server.read_api(c,'/api/file-storage/status',None))
+    def test_admin_connects_network_server_privately_and_other_requests_use_it(self):
+        token='fixture-private-server-key-'*3;srv=file_server.make_server(('127.0.0.1',0),self.disk,token)
+        threading.Thread(target=srv.serve_forever,daemon=True).start()
+        payload=dict(name='Windows fixture',url=f'http://127.0.0.1:{srv.server_port}',store_id=self.disk.store_id,token=token)
+        def connect(d=payload,user=None):return self.store.run(lambda c:storage_admin.connect(c,d,user or self.admin))
+        try:
+            with self.assertRaises(access.AccessError):connect(user=self.qc)
+            with self.assertRaises(fs.StorageError):connect({**payload,'token':'incorrect-private-key-'*3})
+            self.assertIsNone(self.store.db['_metadata'].find_one({'_id':'company-file-server'}))
+            with patch.dict('os.environ',{'VERCEL':'1'}):
+                with self.assertRaisesRegex(ValueError,'HTTPS'):connect()
+            self.assertNotIn(token,json.dumps(connect()))
+            self.assertTrue(self.store.run(lambda c:isinstance(c.files,fs.RemoteStore)))
+            self.store.run(lambda c:storage_admin.move_one(c,{'job_id':self.jid},self.admin))
+            self.assertTrue(fs.is_reference(self.store.db.job_documents.find_one()['content']))
+            self.assertEqual(self.store.run(lambda c:c.one('job_documents'))['content'],self.raw)
+            with patch('server.STORE',self.store),patch('server.access.current',return_value=self.admin):
+                state=self.store.run(lambda c:server.read_api(c,'/api/state',None))
+                status=self.store.run(lambda c:server.read_api(c,'/api/file-storage/status',None))
+            self.assertNotIn(token,json.dumps(state));self.assertNotIn(token,json.dumps(status))
+            self.assertEqual(status['server']['name'],'Windows fixture')
+            connect({**payload,'token':'','name':'Renamed server'})
+            for changed in ({'token':'bad-key-'*5},{'token':'','url':'https://changed.example.invalid'},{'store_id':'another-disk'}):
+                with self.assertRaises(ValueError):connect({**payload,**changed})
+            saved=self.store.db['_metadata'].find_one({'_id':'company-file-server'})
+            self.assertEqual(saved['name'],'Renamed server');self.assertEqual(saved['token'],token)
+        finally:srv.shutdown();srv.server_close()

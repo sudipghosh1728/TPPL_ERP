@@ -257,6 +257,7 @@ def write_api(c,path,d,cookie,ip):
     if path=='/api/projects/delete':return project_deletion.delete(c,d,user)
     if path=='/api/projects/retry-deletion-mail':return project_deletion.retry_mail(c,d,user)
     if path=='/api/file-storage/move':return storage_admin.move_one(c,d,user)
+    if path=='/api/file-storage/connect':return storage_admin.connect(c,d,user)
     if path=='/api/users/reset-password':return access.reset_user_password(c,d,user)
 
     work={'create':manufacturing.create,'attach':manufacturing.attach,'requirement':manufacturing.requirement,'transition':manufacturing.transition,'issue':manufacturing.issue}

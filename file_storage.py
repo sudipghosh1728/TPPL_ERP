@@ -121,6 +121,9 @@ def configured(values=None):
     if mode=='remote':return RemoteStore(v.get('FILE_STORAGE_URL',''),v.get('FILE_STORAGE_TOKEN',''),v.get('FILE_STORAGE_ID',''),v.get('FILE_STORAGE_CA_FILE'))
     raise StorageError('Invalid file storage mode')
 
+def from_saved(config):
+    return RemoteStore(config['url'],config['token'],config['store_id'])
+
 def pack(collection,values,store):
     result=dict(values);field=FIELDS.get(collection)
     if store and field and isinstance(result.get(field),bytes):result[field]=store.put(bytes(result[field]))

@@ -38,7 +38,10 @@ def public(doc):
     return {k:v for k,v in doc.items() if k not in ('_id','name_key','username_key','_revision')}
 
 class UnitOfWork:
-    def __init__(self,db,session,files=None):self.db=db;self.session=session;self.files=files;self._reads={}
+    def __init__(self,db,session,files=None):
+        self.db=db;self.session=session;self.files=files;self._reads={}
+        saved=db['_metadata'].find_one({'_id':'company-file-server'},session=session)
+        if saved:self.files=file_storage.from_saved(saved)
     def cached(self,key,read):
         # Only the lifetime of this transaction; never share company data between requests.
         key=json.dumps(key,sort_keys=True,default=str)

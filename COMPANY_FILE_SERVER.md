@@ -36,8 +36,14 @@ no existing files and does not change the production database configuration.
 
    Setup generates a unique drive identity and private random key in
    `.env.file-server`. Never put that file in GitHub or send its key in chat.
-   If PowerShell blocks scripts, run these commands from an approved PowerShell
-   session under your company's execution policy; do not change machine-wide policy.
+   If PowerShell blocks scripts, use a process-only execution-policy override:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-file-server.ps1 -DriveFolder 'F:\GREYone-files'
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\start-file-server.ps1
+   ```
+
+   These commands do not change the machine-wide execution policy.
 5. The service listens on `127.0.0.1:8090`. Leave it running; prevent sleep while
    plugged in. Configure your laptop to restart the service after a reboot using
    Windows Task Scheduler once the connection has been tested.
@@ -78,10 +84,32 @@ The certificate must match the hostname used by the ERP. An internal CA can be
 trusted with `FILE_STORAGE_CA_FILE` on a locally hosted ERP. TLS verification is
 never disabled. Permit the port only for the intended clients in Windows Firewall.
 
-## 3. Configure the ERP privately
+## 3. Add the network server inside the ERP
 
-For the current Vercel deployment, set these private **Production Environment
-Variables** and redeploy. Copy identity/key from the laptop's private configuration:
+1. Sign in as Admin or Purchase. Open **Projects → Company hard-drive storage →
+   Manage all stored files → Add network server**.
+2. Enter the server name, its HTTPS address, the storage ID and private key from
+   the Windows laptop's `.env.file-server` file.
+3. Click **Test & connect**. The ERP checks authentication, writes and downloads a
+   small verification file, checks existing file samples where available, and
+   only then saves the connection. An invalid connection leaves the previous
+   settings unchanged. No existing project files move during this test.
+4. New uploads now use this server. Use **Edit network server** to update its
+   address or key. A blank key keeps the current key only for the same address.
+   A replacement computer/drive must preserve the existing storage identity and
+   files; the form prevents switching existing references to a different drive.
+
+No Vercel environment editing or redeployment is needed for this form. The private
+server key is stored in MongoDB's backend-only `_metadata` collection, never in
+public settings, project exports, activity logs or API responses. Restrict direct
+database access and protect database backups. The key is not displayed again in
+the form. This setting takes precedence over optional environment settings.
+
+### Optional environment configuration
+
+If you prefer deployment-managed settings instead of the form, set these private
+Vercel **Production Environment Variables** and redeploy. Copy identity/key from
+the laptop's private configuration:
 
 ```dotenv
 FILE_STORAGE_MODE=remote
