@@ -2,8 +2,32 @@
 function installProjectDeletion(){
  const previousJobs=manufacturingJobs;manufacturingJobs=function(){const body=previousJobs();if(selectedJob||!['Admin','Purchase'].includes(sessionUser.role))return body;const rows=state.deletion_mails||[];return body+panel('Project deletion emails','Complete project ZIPs are emailed automatically to ayush@tpplpune.com. Pending attachments remain private until sent. If email setup is missing, configure it before retrying.',table(['PROJECT','RECIPIENT','STATUS',''],rows.map(r=>[esc(r.project_title)+`<small>JOB-${String(r.job_id).padStart(4,'0')}</small>`,esc(r.recipient),badge(r.status),r.status==='Sent'?esc(r.sent_at||'Sent'):`<button class="secondary" data-retry-deletion-mail="${r.id}" data-mail-status="${esc(r.status)}">${r.status==='Queued'?'Retry email':'Check delivery & retry'}</button>`])));};
  const previousDetail=jobDetail;
- jobDetail=function(j){return previousDetail(j)+(['Admin','Purchase'].includes(sessionUser.role)?`<section class="panel project-delete-panel"><h3>Delete project</h3><p>Download all project documents and reports before permanently removing this project.</p><button class="secondary" data-delete-project="${j.id}">Delete project…</button></section>`:'');};
+ jobDetail=function(j){return previousDetail(j)+(['Admin','Purchase'].includes(sessionUser.role)?`<section class="panel project-delete-panel"><h3>Company hard-drive storage</h3><p>Keep this project searchable and move its documents, reports and archive files to your company file server. Project details, approvals and chat text stay in the ERP.</p><button class="secondary" data-drive-project="${j.id}">Manage file storage</button></section><section class="panel project-delete-panel"><h3>Delete project</h3><p>Download all project documents and reports before permanently removing this project.</p><button class="secondary" data-delete-project="${j.id}">Delete project…</button></section>`:'');};
+ const priorJobs=manufacturingJobs;manufacturingJobs=function(){return priorJobs()+(!selectedJob&&['Admin','Purchase'].includes(sessionUser.role)?panel('Company hard-drive storage','Move existing documents to your company laptop and external drive while keeping projects, approvals and chat searchable. A configured file server is required.','<button class="secondary" data-drive-project="">Manage all stored files</button>'):'');};
 }
+
+async function companyDriveForm(jobId){
+ if(!['Admin','Purchase'].includes(sessionUser.role))return;
+ modal('Company hard-drive storage','<p id="drive-status" role="status">Checking your file server…</p><div id="drive-content"></div>');
+ $('#modal').classList.add('wide');
+ const status=$('#drive-status'),content=$('#drive-content');
+ try{
+  const r=await fetch('/api/file-storage/status'),data=await r.json();if(!r.ok)throw Error(data.error);
+  if(!status.isConnected)return;status.textContent=data.message;
+  content.innerHTML='<div id="drive-counts">'+table(['FILES','IN MONGODB','ON DRIVE'],data.collections.map(r=>[esc(({job_documents:'POs, drawings & certificates',report_workbooks:'Uploaded reports',dispatch_archives:'Dispatch & deletion ZIP parts',project_delete_parts:'Temporary download ZIP parts'})[r.collection]),r.in_mongo,r.on_drive]))+'</div>'+`<p class="form-intro">These totals cover the whole company. ${jobId?'This transfer covers only the selected project.':'This transfer covers all stored project and report files.'} Each file is read back and verified before replacing its database copy with a reference. Existing projects are kept.</p><p>Your file server must be online to open documents. Keep a separate backup of the drive and MongoDB metadata together.</p><button class="primary" id="drive-move" ${data.connected?'':'disabled'}>Move ${jobId?'project':'all existing'} files to drive</button><p id="drive-progress" role="status"></p><p>You can close this window to pause after the current file; reopening safely resumes.</p>`;
+  content.querySelector('#drive-move').onclick=async function(){
+   this.disabled=true;const progress=content.querySelector('#drive-progress');let moved=0,bytes=0;
+   try{
+    while(content.isConnected&&$('#modal').open){
+     const response=await fetch('/api/file-storage/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(jobId?{job_id:jobId}:{})}),out=await response.json();if(!response.ok)throw Error(out.error);
+     moved+=out.moved;bytes+=out.bytes;progress.textContent=`${moved} files verified · ${(bytes/1048576).toFixed(2)} MB moved · ${out.remaining} remaining`;
+     if(!out.remaining){const refreshed=await fetch('/api/file-storage/status');if(refreshed.ok){const latest=await refreshed.json();content.querySelectorAll('#drive-counts tbody tr').forEach((row,i)=>{row.cells[1].textContent=latest.collections[i].in_mongo;row.cells[2].textContent=latest.collections[i].on_drive;});}status.textContent='Transfer complete. Projects remain available in the ERP.';break;}
+    }
+   }catch(e){progress.textContent=e.message+' Verified earlier transfers are retained. Retry to continue.';}finally{this.disabled=false;}
+  };
+ }catch(e){status.textContent=e.message;}
+}
+document.addEventListener('click',e=>{const button=e.target.closest('[data-drive-project]');if(button)companyDriveForm(button.dataset.driveProject?Number(button.dataset.driveProject):null);});
 function deleteProjectForm(id){
  const j=workJob(+id);if(!j||!['Admin','Purchase'].includes(sessionUser.role))return;
  const ref=jobRef(j);let archive=null,downloadReady=false;

@@ -1,6 +1,6 @@
 """VECTORone HTTP application using native MongoDB transactions."""
 
-import project_deletion, reminders, qc_ops, report_workshop
+import project_deletion, reminders, qc_ops, report_workshop, storage_admin
 import datetime,hashlib,html,json,pathlib,time
 
 from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
@@ -87,6 +87,8 @@ def read_api(c,path,cookie):
     if not user:raise access.AccessError('Please sign in to continue',401)
 
     company_config.guard(c,path)
+
+    if path=='/api/file-storage/status':return storage_admin.status(c,user)
 
     if path.startswith('/api/workbooks/'):
         parts=path.removeprefix('/api/workbooks/').split('/')
@@ -254,6 +256,8 @@ def write_api(c,path,d,cookie,ip):
     if path=='/api/projects/delete-export':return project_deletion.prepare(c,d,user)
     if path=='/api/projects/delete':return project_deletion.delete(c,d,user)
     if path=='/api/projects/retry-deletion-mail':return project_deletion.retry_mail(c,d,user)
+    if path=='/api/file-storage/move':return storage_admin.move_one(c,d,user)
+    if path=='/api/users/reset-password':return access.reset_user_password(c,d,user)
 
     work={'create':manufacturing.create,'attach':manufacturing.attach,'requirement':manufacturing.requirement,'transition':manufacturing.transition,'issue':manufacturing.issue}
 

@@ -85,6 +85,20 @@ def manage_user(c,d,actor):
     if d.get('password'):c.update('users',{'id':u['id']},{'password_hash':password_hash(d['password'])})
     c.delete('sessions',{'user_id':u['id']})
 
+def reset_user_password(c,d,actor):
+    require(actor)
+    uid=identifier(d.get('id'))
+    if uid==actor['id']:raise ValueError('Use My password to change your own password')
+    user=c.one('users',{'id':uid})
+    if not user:raise ValueError('User not found')
+    if d.get('password')!=d.get('confirm_password'):raise ValueError('The new passwords do not match')
+    hashed=password_hash(d.get('password'))
+    c.update('users',{'id':uid},{'password_hash':hashed})
+    c.delete('sessions',{'user_id':uid})
+    import datetime
+    c.insert('activity',message='Password reset for '+user['username']+' ('+user['role']+') by '+actor['name'],actor_id=actor['id'],target_user_id=uid,date=datetime.datetime.now(datetime.timezone.utc).isoformat())
+    return {'ok':True}
+
 def filter_state(c,data,user):
     role=user['role'];data['user']=user
     data['users']=[public(u) for u in c.all('users',sort=[('role',1),('name',1)])] if role in ('Admin','Purchase') else []

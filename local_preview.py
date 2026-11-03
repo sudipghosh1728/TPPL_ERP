@@ -28,6 +28,7 @@ def provision(c):
 
 if __name__=='__main__':
  os.environ['ARCHIVE_MAIL_ENABLED']='false'
+ os.environ['FILE_STORAGE_MODE']='mongo'
  parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8001);args=parser.parse_args()
  http=server.ThreadingHTTPServer(('127.0.0.1',args.port),server.Handler)
  server.STORE=MongoStore(MongoClient('mongodb://127.0.0.1:27018/?replicaSet=tppl-test',serverSelectionTimeoutMS=5000),'grey_plants_preview')

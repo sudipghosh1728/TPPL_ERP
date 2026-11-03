@@ -4,7 +4,7 @@ from pymongo.errors import CollectionInvalid
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 from pymongo.read_preferences import ReadPreference
-import config,json,copy
+import config,json,copy,file_storage
 
 COLLECTIONS=('products','orders','movements','activity','settings','purchases','jobs','accounts','journals',
              'journal_lines','invoice_items','settlements','requests','users','sessions','login_attempts',
@@ -38,23 +38,23 @@ def public(doc):
     return {k:v for k,v in doc.items() if k not in ('_id','name_key','username_key','_revision')}
 
 class UnitOfWork:
-    def __init__(self,db,session):self.db=db;self.session=session;self._reads={}
+    def __init__(self,db,session,files=None):self.db=db;self.session=session;self.files=files;self._reads={}
     def cached(self,key,read):
         # Only the lifetime of this transaction; never share company data between requests.
         key=json.dumps(key,sort_keys=True,default=str)
         if key not in self._reads:self._reads[key]=read()
         return copy.deepcopy(self._reads[key])
     def one(self,collection,query=None):
-        return self.cached(('one',collection,query),lambda:public(self.db[collection].find_one(query or {},session=self.session)))
+        return self.cached(('one',collection,query),lambda:public(file_storage.unpack(collection,self.db[collection].find_one(query or {},session=self.session),self.files)))
     def all(self,collection,query=None,sort=None,projection=None):
         def read():
             cursor=self.db[collection].find(query or {},projection,session=self.session)
             if sort:cursor=cursor.sort(sort)
-            return [public(r) for r in cursor]
+            return [public(file_storage.unpack(collection,r,self.files)) for r in cursor]
         return self.cached(('all',collection,query,sort,projection),read)
     def insert(self,collection,**values):
         self._reads.clear()
-        doc={**DEFAULTS.get(collection,{}),**values}
+        doc=file_storage.pack(collection,{**DEFAULTS.get(collection,{}),**values},self.files)
         if collection in KEYS:
             doc['_id']=doc[KEYS[collection]]
         else:
@@ -71,7 +71,7 @@ class UnitOfWork:
     def update(self,collection,query,values=None,inc=None,upsert=False):
         self._reads.clear()
         change={}
-        if values:change['$set']=dict(values)
+        if values:change['$set']=file_storage.pack(collection,values,self.files)
         if inc:change['$inc']=dict(inc)
         if collection=='accounts' and values and 'name' in values:change['$set']['name_key']=values['name'].casefold()
         if not change:return 0
@@ -85,8 +85,11 @@ class UnitOfWork:
         return self.update(collection,{'id':record_id},inc={'_revision':1})
 
 class MongoStore:
-    def __init__(self,client=None,database=None):
-        if client is None:client,database=config.client()
+    def __init__(self,client=None,database=None,files=None):
+        if client is None:
+            client,database=config.client()
+            files=file_storage.configured()
+        self.files=files
         self.client=client;self.db=client[database];self.database=database
     def prepare(self):
         self.client.admin.command('ping')
@@ -130,5 +133,5 @@ class MongoStore:
     def run(self,callback):
         # Responses and file downloads are sent only after this callback commits.
         with self.client.start_session() as session:
-            return session.with_transaction(lambda s:callback(UnitOfWork(self.db,s)),read_concern=ReadConcern('snapshot'),write_concern=WriteConcern('majority'),read_preference=ReadPreference.PRIMARY,max_commit_time_ms=15000)
+            return session.with_transaction(lambda s:callback(UnitOfWork(self.db,s,self.files)),read_concern=ReadConcern('snapshot'),write_concern=WriteConcern('majority'),read_preference=ReadPreference.PRIMARY,max_commit_time_ms=15000)
     def close(self):self.client.close()

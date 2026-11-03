@@ -25,7 +25,7 @@ def send_next(store,settings,transport=None,outbox_id=None):
  row=store.db.dispatch_outbox.find_one_and_update(query,{'$set':{'status':'Sending','started_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}},sort=[('id',1)],return_document=ReturnDocument.AFTER)
  if not row:return 'Empty'
  try:
-  chunks=list(store.db.dispatch_archives.find({'outbox_id':row['id']}).sort('chunk',1))
+  chunks=store.run(lambda c:c.all('dispatch_archives',{'outbox_id':row['id']},sort=[('chunk',1)]))
   if not chunks:raise ValueError('Archive snapshot missing')
   packet=b''.join(bytes(x['content']) for x in chunks)
   if row.get('archive_sha256') and hashlib.sha256(packet).hexdigest()!=row['archive_sha256']:raise ValueError('Archive integrity check failed')

@@ -1,0 +1,13 @@
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+const PHOTO='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/aEAAAAASUVORK5CYII=';
+(async()=>{const browser=await chromium.launch(),page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[],password='Drive-browser-1234';page.setDefaultTimeout(20000);page.on('pageerror',e=>errors.push(e.message));
+const api=async(path,data)=>page.evaluate(async({path,data})=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),out=await r.json();if(!r.ok)throw Error(out.error);return out},{path,data});
+try{
+ await page.goto(process.env.ERP_TEST_URL+'/admin');await page.locator('[name=name]').fill('Storage admin');await page.locator('[name=username]').fill('storage-admin');await page.locator('[name=password]').fill(password);await page.locator('#login-form button').click();await page.getByRole('heading',{name:'My employee profile'}).waitFor();
+ await api('hr/profile',{name:'Storage admin',phone:'9999999999',email:'test@example.invalid',blood_group:'O+',dob:'1990-01-01',plant_id:'solu',photo:PHOTO});
+ await page.reload();await page.locator('#nav a[href="#jobs"]').click();await page.getByRole('button',{name:'Manage all stored files'}).click();await page.locator('#drive-move:not([disabled])').waitFor();
+ await page.locator('#drive-move').click();await page.getByText('Transfer complete. Projects remain available in the ERP.',{exact:true}).waitFor();assert((await page.locator('#drive-progress').innerText()).includes('3 files verified'));
+ await page.locator('[data-close]').click();await page.locator('[data-project=open]').first().click();await page.getByRole('button',{name:'Manage file storage',exact:true}).click();await page.locator('#drive-move:not([disabled])').waitFor();await page.locator('#drive-move').click();await page.getByText('Transfer complete. Projects remain available in the ERP.',{exact:true}).waitFor();assert((await page.locator('#drive-progress').innerText()).includes('0 files verified'));
+ const checked=await page.evaluate(async()=>{const state=await(await fetch('/api/state')).json(),doc=state.job_documents[0];return {jobs:state.work_jobs.length,bytes:await(await fetch('/api/documents/'+doc.id)).text()}});assert.equal(checked.jobs,1);assert.equal(checked.bytes,'ORIGINAL FILE FIXTURE');
+ await page.screenshot({path:'test-results/company-file-storage.png'});assert.deepEqual(errors,[]);console.log('PASS: Admin company/project transfer, verified files, safe repeat, retained project and unchanged download.');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});
