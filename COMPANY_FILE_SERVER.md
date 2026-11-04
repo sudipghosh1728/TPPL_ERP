@@ -3,7 +3,7 @@
 ## What this changes
 
 The optional **Company hard-drive storage** section appears for Admin and Purchase
-under Projects and in each project. It moves original PO files, drawings, TCs,
+in Settings, under Projects and in each project. It moves original PO files, drawings, TCs,
 supporting documents, uploaded reports, and dispatch/deletion ZIP parts from
 MongoDB to your drive. New uploads use the drive after configuration is enabled.
 Downloads, report approvals, project exports and chat attachments continue through
@@ -86,8 +86,9 @@ never disabled. Permit the port only for the intended clients in Windows Firewal
 
 ## 3. Add the network server inside the ERP
 
-1. Sign in as Admin or Purchase. Open **Projects → Company hard-drive storage →
-   Manage all stored files → Add network server**.
+1. Sign in as Admin or Purchase. Open **Settings → Network server & file storage →
+   Set up / manage network server → Add network server**. The same controls are
+   also available under **Projects → Company hard-drive storage**.
 2. Enter the server name, its HTTPS address, the storage ID and private key from
    the Windows laptop's `.env.file-server` file.
 3. Click **Test & connect**. The ERP checks authentication, writes and downloads a

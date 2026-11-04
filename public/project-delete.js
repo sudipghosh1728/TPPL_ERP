@@ -1,4 +1,8 @@
 /* Admin deletion requires a complete downloaded snapshot and explicit confirmation. */
+function companyDriveSettings(){
+ if(!['Admin','Purchase'].includes(sessionUser.role))return '';
+ return panel('Network server & file storage','Set up your company Windows laptop and external drive for project documents and reports.',`<ol><li>Start the file service on your Windows laptop and connect its secure HTTPS address.</li><li>Enter the server name, HTTPS address, storage ID and private key, then select <strong>Test & connect</strong>.</li><li>After connecting, move existing files to the drive when you are ready.</li></ol><p>Business records stay in the ERP. Connecting a server does not automatically move existing files. Keep the laptop online to access stored documents.</p><button type="button" class="primary" data-drive-project="">Set up / manage network server</button>`);
+}
 function installProjectDeletion(){
  const previousJobs=manufacturingJobs;manufacturingJobs=function(){const body=previousJobs();if(selectedJob||!['Admin','Purchase'].includes(sessionUser.role))return body;const rows=state.deletion_mails||[];return body+panel('Project deletion emails','Complete project ZIPs are emailed automatically to ayush@tpplpune.com. Pending attachments remain private until sent. If email setup is missing, configure it before retrying.',table(['PROJECT','RECIPIENT','STATUS',''],rows.map(r=>[esc(r.project_title)+`<small>JOB-${String(r.job_id).padStart(4,'0')}</small>`,esc(r.recipient),badge(r.status),r.status==='Sent'?esc(r.sent_at||'Sent'):`<button class="secondary" data-retry-deletion-mail="${r.id}" data-mail-status="${esc(r.status)}">${r.status==='Queued'?'Retry email':'Check delivery & retry'}</button>`])));};
  const previousDetail=jobDetail;
